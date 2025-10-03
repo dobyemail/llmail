@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # MailHog - testowy serwer email z interfejsem webowym
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: test-mailserver
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    environment:
+      - MH_STORAGE=memory
+      - MH_SMTP_BIND_ADDR=0.0.0.0:1025
+      - MH_API_BIND_ADDR=0.0.0.0:8025
+      - MH_UI_BIND_ADDR=0.0.0.0:8025
+    networks:
+      - email-test-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1025"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Dovecot - serwer IMAP dla testów
+  dovecot:
+    build:
+      context: ./dovecot
+      dockerfile: Dockerfile
+    container_name: test-imap-server
+    ports:
+      - "143:143"   # IMAP
+      - "993:993"   # IMAPS
+    environment:
+      - MAIL_USER=test@localhost
+      - MAIL_PASS=testpass123
+    volumes:
+      - maildata:/var/mail
+      - ./dovecot/config:/etc/dovecot
+    networks:
+      - email-test-network
+    depends_on:
+      - mailhog
+
+  # Generator danych testowych
+  email-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.generator
+    container_name: email-generator
+    environment:
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - NUM_EMAILS=100
+      - SPAM_RATIO=0.2
+    networks:
+      - email-test-network
+    depends_on:
+      mailhog:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+
+  # Bot organizujący emaile
+  email-organizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: email-organizer-bot
+    environment:
+      - EMAIL_ADDRESS=test@localhost
+      - EMAIL_PASSWORD=testpass123
+      - IMAP_SERVER=dovecot
+      - IMAP_PORT=143
+      - MODE=organizer
+    networks:
+      - email-test-network
+    depends_on:
+      - dovecot
+      - email-generator
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    command: ["python", "email_organizer.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot"]
+
+  # Bot odpowiadający na emaile
+  email-responder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: email-responder-bot
+    environment:
+      - EMAIL_ADDRESS=test@localhost
+      - EMAIL_PASSWORD=testpass123
+      - IMAP_SERVER=dovecot
+      - SMTP_SERVER=mailhog
+      - MODEL_NAME=microsoft/DialoGPT-small
+      - MODE=responder
+    networks:
+      - email-test-network
+    depends_on:
+      - email-organizer
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./models:/app/models
+    command: ["python", "email_responder.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot", "--model", "microsoft/DialoGPT-small", "--limit", "10"]
+
+  # Testy integracyjne
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: test-runner
+    environment:
+      - EMAIL_ADDRESS=test@localhost
+      - EMAIL_PASSWORD=testpass123
+      - IMAP_SERVER=dovecot
+      - SMTP_SERVER=mailhog
+      - MAILHOG_API=http://mailhog:8025
+    networks:
+      - email-test-network
+    depends_on:
+      - mailhog
+      - dovecot
+    volumes:
+      - ./test-results:/app/test-results
+      - ./logs:/app/logs
+    command: ["pytest", "-v", "--cov=.", "--cov-report=html:/app/test-results/coverage"]
+
+networks:
+  email-test-network:
+    driver: bridge
+
+volumes:
+  maildata:

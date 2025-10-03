@@ -1,0 +1,73 @@
+
+# ============================================
+# Dockerfile.generator - Dockerfile dla generatora emaili
+# ============================================
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    faker \
+    lorem \
+    colorama
+
+COPY generate_test_emails.py .
+
+CMD ["python", "generate_test_emails.py"]
+
+# ============================================
+# Dockerfile.test - Dockerfile dla testów
+# ============================================
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-cov \
+    pytest-html \
+    pytest-timeout \
+    requests \
+    colorama \
+    faker \
+    lorem \
+    numpy \
+    scikit-learn \
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    transformers
+
+COPY *.py .
+
+CMD ["python", "test_suite.py"]
+
+# ============================================
+# dovecot/Dockerfile - Dockerfile dla serwera IMAP
+# ============================================
+FROM dovecot/dovecot:latest
+
+# Instalacja dodatkowych narzędzi
+RUN apt-get update && apt-get install -y \
+    postfix \
+    mailutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Kopiuj konfigurację
+COPY dovecot.conf /etc/dovecot/dovecot.conf
+COPY users /etc/dovecot/users
+
+# Utwórz użytkownika testowego
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser:testpass123" | chpasswd
+
+# Utwórz strukturę folderów
+RUN mkdir -p /var/mail/testuser && \
+    chown -R testuser:testuser /var/mail/testuser
+
+EXPOSE 143 993
+
+CMD ["dovecot", "-F"]
