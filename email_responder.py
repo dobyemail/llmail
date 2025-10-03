@@ -20,7 +20,7 @@ import torch
 
 class EmailResponder:
     def __init__(self, email_address: str, password: str, 
-                 model_name: str = "mistralai/Mistral-7B-Instruct-v0.2",
+                 model_name: str = "Qwen/Qwen2.5-7B-Instruct",
                  imap_server: str = None, smtp_server: str = None):
         """Inicjalizacja bota odpowiadającego na emaile"""
         self.email_address = email_address
@@ -402,7 +402,7 @@ def main():
     parser.add_argument('--smtp', help='Serwer SMTP (opcjonalnie)')
     
     # Parametry modelu
-    parser.add_argument('--model', default='mistralai/Mistral-7B-Instruct-v0.2',
+    parser.add_argument('--model', default='Qwen/Qwen2.5-7B-Instruct',
                        help='Nazwa modelu LLM do użycia')
     parser.add_argument('--offline', action='store_true',
                        help='Użyj trybu offline (mock responses)')

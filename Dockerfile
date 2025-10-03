@@ -17,8 +17,8 @@ WORKDIR /app
 COPY requirements.txt* ./
 
 # Kopiowanie plików aplikacji
-COPY email_organizer_bot.py .
-COPY email_responder_bot.py .
+COPY email_organizer.py .
+COPY email_responder.py .
 COPY email_generator.py .
 COPY test_suite.py .
 
@@ -38,11 +38,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pytest-cov \
     colorama
 
-# Pobierz mały model LLM dla testów (używamy małego modelu dla szybkości)
-RUN python -c "from transformers import AutoTokenizer, AutoModelForCausalLM; \
-    print('Pobieranie modelu testowego...'); \
-    AutoTokenizer.from_pretrained('microsoft/DialoGPT-small'); \
-    AutoModelForCausalLM.from_pretrained('microsoft/DialoGPT-small')"
+# Modele są pobierane dynamicznie w czasie uruchomienia w zależności od wyboru
 
 # Ustaw zmienne środowiskowe
 ENV PYTHONUNBUFFERED=1

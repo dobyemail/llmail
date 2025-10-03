@@ -78,7 +78,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./reports:/app/reports
-    command: ["python", "email_organizer_bot.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot"]
+    # command handled by entrypoint
 
   # Bot odpowiadający na emaile
   email-responder:
@@ -91,7 +91,7 @@ services:
       - EMAIL_PASSWORD=testpass123
       - IMAP_SERVER=dovecot
       - SMTP_SERVER=mailhog
-      - MODEL_NAME=microsoft/DialoGPT-small
+      - MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
       - MODE=responder
     networks:
       - email-test-network
@@ -101,7 +101,7 @@ services:
       - ./logs:/app/logs
       - ./reports:/app/reports
       - ./models:/app/models
-    command: ["python", "email_responder_bot.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot", "--model", "microsoft/DialoGPT-small", "--limit", "10"]
+    # command handled by entrypoint
 
   # Testy integracyjne
   test-runner:

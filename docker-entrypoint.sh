@@ -19,7 +19,7 @@ case $MODE in
         
     organizer)
         echo "📁 Running EMAIL ORGANIZER"
-        python email_organizer.py \
+        python email_organizer_bot.py \
             --email ${EMAIL_ADDRESS} \
             --password ${EMAIL_PASSWORD} \
             --server ${IMAP_SERVER}
@@ -32,13 +32,13 @@ case $MODE in
             --password ${EMAIL_PASSWORD} \
             --server ${IMAP_SERVER} \
             --smtp ${SMTP_SERVER} \
-            --model ${MODEL_NAME:-microsoft/DialoGPT-small} \
+            --model ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct} \
             --limit ${LIMIT:-10}
         ;;
         
     generator)
         echo "🎲 Running EMAIL GENERATOR"
-        python generate_test_emails.py \
+        python email_generator.py \
             --host ${SMTP_HOST} \
             --port ${SMTP_PORT} \
             --count ${NUM_EMAILS:-50} \

@@ -1,5 +1,5 @@
 
-.PHONY: help build up down test clean logs shell
+.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog clean status report generate-emails organize respond
 
 # Kolory dla ładniejszego output
 GREEN := \033[0;32m
@@ -18,7 +18,7 @@ help: ## Wyświetl pomoc
 	@echo "$(YELLOW)Przykłady użycia:$(NC)"
 	@echo "  make build      # Zbuduj obrazy Docker"
 	@echo "  make test       # Uruchom pełne testy"
-	@echo "  make up         # Uruchom wszystkie serwisy"
+	@echo "  make install    # Zainstaluj lokalnie (venv + pip install)"
 	@echo "  make logs       # Pokaż logi"
 
 build: ## Zbuduj wszystkie obrazy Docker
@@ -34,6 +34,11 @@ up: ## Uruchom wszystkie serwisy
 down: ## Zatrzymaj wszystkie serwisy
 	@echo "$(YELLOW)⏹️  Stopping services...$(NC)"
 	docker-compose down -v
+
+install: ## Zainstaluj lokalnie (venv + pip install)
+	@echo "$(YELLOW)📦 Installing locally...$(NC)"
+	chmod +x install.sh
+	./install.sh
 
 test: build ## Uruchom pełny test suite
 	@echo "$(YELLOW)🧪 Running test suite...$(NC)"
@@ -92,5 +97,6 @@ organize: ## Uruchom tylko organizera
 
 respond: ## Uruchom tylko respondera
 	@echo "$(GREEN)💬 Running responder...$(NC)"
-	docker-compose run --rm email-responder
+	# Użyj: make respond MODEL="mistralai/Mistral-7B-Instruct-v0.2"
+	docker-compose run --rm -e MODEL_NAME="$(MODEL)" email-responder
 

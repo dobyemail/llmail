@@ -104,32 +104,32 @@ Funkcje:
 
 ```bash
 # Podstawowe użycie
-python email_organizer_bot.py --email twoj@email.com --password haslo
+python email_organizer.py --email twoj@email.com --password haslo
 
 # Z własnym serwerem IMAP
-python email_organizer_bot.py --email twoj@email.com --password haslo --server imap.example.com
+python email_organizer.py --email twoj@email.com --password haslo --server imap.example.com
 
 # Tryb testowy (bez przenoszenia)
-python email_organizer_bot.py --email twoj@email.com --password haslo --dry-run
+python email_organizer.py --email twoj@email.com --password haslo --dry-run
 ```
 
 ### Email Responder
 
 ```bash
 # Podstawowe użycie
-python email_responder_bot.py --email twoj@email.com --password haslo
+python email_responder.py --email twoj@email.com --password haslo
 
 # Z wyborem modelu
-python email_responder_bot.py --email twoj@email.com --password haslo --model mistralai/Mistral-7B-Instruct-v0.2
+python email_responder.py --email twoj@email.com --password haslo --model mistralai/Mistral-7B-Instruct-v0.2
 
 # Przetwarzanie określonego folderu
-python email_responder_bot.py --email twoj@email.com --password haslo --folder "Important" --limit 5
+python email_responder.py --email twoj@email.com --password haslo --folder "Important" --limit 5
 
 # Tryb offline (mock responses)
-python email_responder_bot.py --email twoj@email.com --password haslo --offline --dry-run
+python email_responder.py --email twoj@email.com --password haslo --offline --dry-run
 
 # Z parametrami generowania
-python email_responder_bot.py --email twoj@email.com --password haslo --temperature 0.8 --max-tokens 300
+python email_responder.py --email twoj@email.com --password haslo --temperature 0.8 --max-tokens 300
 ```
 
 ## 🤖 Rekomendowane modele LLM (do 8B)
@@ -156,7 +156,7 @@ python email_responder_bot.py --email twoj@email.com --password haslo --temperat
 - Użyj zmiennych środowiskowych dla wrażliwych danych:
   ```bash
   export EMAIL_PASSWORD="twoje_haslo"
-  python email_organizer_bot.py --email twoj@email.com --password $EMAIL_PASSWORD
+  python email_organizer.py --email twoj@email.com --password $EMAIL_PASSWORD
   ```
 - Rozważ użycie menedżera haseł lub keyring
 
