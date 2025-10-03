@@ -11,12 +11,14 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import argparse
 import os
+import sys
 from datetime import datetime
 from typing import List, Dict, Optional
 import json
 import time
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+from dotenv import load_dotenv
 
 class EmailResponder:
     def __init__(self, email_address: str, password: str, 
@@ -396,13 +398,15 @@ Z poważaniem,
 
 def main():
     parser = argparse.ArgumentParser(description='Email Responder Bot z LLM')
-    parser.add_argument('--email', required=True, help='Adres email')
-    parser.add_argument('--password', required=True, help='Hasło do skrzynki')
-    parser.add_argument('--server', help='Serwer IMAP (opcjonalnie)')
-    parser.add_argument('--smtp', help='Serwer SMTP (opcjonalnie)')
+    # Załaduj zmienne z .env, aby były dostępne jako domyślne
+    load_dotenv()
+    parser.add_argument('--email', required=False, default=None, help='Adres email')
+    parser.add_argument('--password', required=False, default=None, help='Hasło do skrzynki')
+    parser.add_argument('--server', required=False, default=None, help='Serwer IMAP (opcjonalnie)')
+    parser.add_argument('--smtp', required=False, default=None, help='Serwer SMTP (opcjonalnie)')
     
     # Parametry modelu
-    parser.add_argument('--model', default='Qwen/Qwen2.5-7B-Instruct',
+    parser.add_argument('--model', default=None,
                        help='Nazwa modelu LLM do użycia')
     parser.add_argument('--offline', action='store_true',
                        help='Użyj trybu offline (mock responses)')
@@ -410,7 +414,7 @@ def main():
     # Parametry przetwarzania
     parser.add_argument('--folder', default='INBOX',
                        help='Folder do przetworzenia (domyślnie: INBOX)')
-    parser.add_argument('--limit', type=int, default=10,
+    parser.add_argument('--limit', type=int, default=None,
                        help='Limit emaili do przetworzenia')
     parser.add_argument('--all-emails', action='store_true',
                        help='Przetwarzaj wszystkie emaile, nie tylko nieprzeczytane')
@@ -418,12 +422,34 @@ def main():
                        help='Tylko generuj odpowiedzi, nie zapisuj draftów')
     
     # Parametry generowania
-    parser.add_argument('--temperature', type=float, default=0.7,
+    parser.add_argument('--temperature', type=float, default=None,
                        help='Temperatura generowania (0.0-1.0)')
-    parser.add_argument('--max-tokens', type=int, default=500,
+    parser.add_argument('--max-tokens', type=int, default=None,
                        help='Maksymalna długość odpowiedzi')
     
     args = parser.parse_args()
+
+    # Fallback do zmiennych środowiskowych (wczytanych z .env), jeśli brak parametrów
+    args.email = args.email or os.getenv('EMAIL_ADDRESS')
+    args.password = args.password or os.getenv('EMAIL_PASSWORD')
+    args.server = args.server or os.getenv('IMAP_SERVER')
+    args.smtp = args.smtp or os.getenv('SMTP_SERVER')
+    args.model = args.model or os.getenv('MODEL_NAME') or 'Qwen/Qwen2.5-7B-Instruct'
+    # liczby
+    if args.limit is None:
+        env_limit = os.getenv('LIMIT')
+        args.limit = int(env_limit) if env_limit is not None else 10
+    if args.temperature is None:
+        env_temp = os.getenv('TEMPERATURE')
+        args.temperature = float(env_temp) if env_temp is not None else 0.7
+    if args.max_tokens is None:
+        env_max = os.getenv('MAX_TOKENS')
+        args.max_tokens = int(env_max) if env_max is not None else 500
+
+    # Walidacja wymaganych
+    if not args.email or not args.password:
+        print("❌ Brak wymaganych danych logowania. Podaj --email/--password lub skonfiguruj plik .env (EMAIL_ADDRESS, EMAIL_PASSWORD).")
+        sys.exit(1)
     
     # Utwórz bota
     bot = EmailResponder(args.email, args.password, 
@@ -438,9 +464,9 @@ def main():
         print("🔌 Tryb offline - używam przykładowych odpowiedzi")
     
     # Ustaw parametry generowania
-    if args.temperature:
+    if args.temperature is not None:
         bot.set_generation_params(temperature=args.temperature)
-    if args.max_tokens:
+    if args.max_tokens is not None:
         bot.set_generation_params(max_new_tokens=args.max_tokens)
     
     # Połącz i przetwarzaj

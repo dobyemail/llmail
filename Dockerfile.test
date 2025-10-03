@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir \
     numpy \
     scikit-learn \
     torch --index-url https://download.pytorch.org/whl/cpu \
-    transformers
+    transformers \
+    python-dotenv
 
 COPY *.py .
 

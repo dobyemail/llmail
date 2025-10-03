@@ -45,6 +45,8 @@ services:
       context: .
       dockerfile: Dockerfile.generator
     container_name: email-generator
+    env_file:
+      - .env
     environment:
       - SMTP_HOST=mailhog
       - SMTP_PORT=1025
@@ -64,6 +66,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: email-organizer-bot
+    env_file:
+      - .env
     environment:
       - EMAIL_ADDRESS=test@localhost
       - EMAIL_PASSWORD=testpass123
@@ -86,6 +90,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: email-responder-bot
+    env_file:
+      - .env
     environment:
       - EMAIL_ADDRESS=test@localhost
       - EMAIL_PASSWORD=testpass123
@@ -109,6 +115,8 @@ services:
       context: .
       dockerfile: Dockerfile.test
     container_name: test-runner
+    env_file:
+      - .env
     environment:
       - EMAIL_ADDRESS=test@localhost
       - EMAIL_PASSWORD=testpass123

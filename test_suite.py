@@ -21,7 +21,7 @@ from colorama import init, Fore, Back, Style
 sys.path.append('/app')
 from email_organizer import EmailOrganizer
 from email_responder import EmailResponder
-from generate_test_emails import TestEmailGenerator
+from email_generator import TestEmailGenerator
 
 init(autoreset=True)
 

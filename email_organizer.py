@@ -9,6 +9,7 @@ import email
 from email.header import decode_header
 import argparse
 import os
+import sys
 import re
 from datetime import datetime
 from typing import List, Dict, Tuple
@@ -18,6 +19,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import warnings
+from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
 
 class EmailOrganizer:
@@ -315,16 +317,28 @@ class EmailOrganizer:
 
 def main():
     parser = argparse.ArgumentParser(description='Email Organizer Bot')
-    parser.add_argument('--email', required=True, help='Adres email')
-    parser.add_argument('--password', required=True, help='Hasło do skrzynki')
-    parser.add_argument('--server', help='Serwer IMAP (opcjonalnie)')
+    # Załaduj .env aby mieć dostęp do domyślnych wartości
+    load_dotenv()
+
+    parser.add_argument('--email', required=False, default=None, help='Adres email')
+    parser.add_argument('--password', required=False, default=None, help='Hasło do skrzynki')
+    parser.add_argument('--server', required=False, default=None, help='Serwer IMAP (opcjonalnie)')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Tylko analizuj, nie przenoś emaili')
     
     args = parser.parse_args()
+
+    # Fallback do zmiennych środowiskowych (z .env) jeśli brak parametrów
+    email_arg = args.email or os.getenv('EMAIL_ADDRESS')
+    password_arg = args.password or os.getenv('EMAIL_PASSWORD')
+    server_arg = args.server or os.getenv('IMAP_SERVER')
+
+    if not email_arg or not password_arg:
+        print("❌ Brak wymaganych danych logowania. Podaj --email/--password lub skonfiguruj plik .env (EMAIL_ADDRESS, EMAIL_PASSWORD).")
+        sys.exit(1)
     
     # Utwórz i uruchom bota
-    bot = EmailOrganizer(args.email, args.password, args.server)
+    bot = EmailOrganizer(email_arg, password_arg, server_arg)
     
     if bot.connect():
         try:

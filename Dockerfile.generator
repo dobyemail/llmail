@@ -6,7 +6,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     faker \
     lorem \
-    colorama
+    colorama \
+    python-dotenv
 
 COPY email_generator.py .
 

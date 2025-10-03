@@ -14,6 +14,7 @@ import lorem
 from datetime import datetime, timedelta
 from typing import List, Dict
 import json
+from dotenv import load_dotenv
 
 class TestEmailGenerator:
     def __init__(self, smtp_host='localhost', smtp_port=1025):
@@ -455,6 +456,9 @@ def main():
     parser.add_argument('--no-send', action='store_true', help='Tylko generuj, nie wysyłaj')
     
     args = parser.parse_args()
+
+    # Załaduj zmienne środowiskowe z .env (jeśli istnieje)
+    load_dotenv()
     
     # Użyj zmiennych środowiskowych jeśli są dostępne
     smtp_host = os.environ.get('SMTP_HOST', args.host)

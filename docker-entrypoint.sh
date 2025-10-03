@@ -19,7 +19,7 @@ case $MODE in
         
     organizer)
         echo "📁 Running EMAIL ORGANIZER"
-        python email_organizer_bot.py \
+        python email_organizer.py \
             --email ${EMAIL_ADDRESS} \
             --password ${EMAIL_PASSWORD} \
             --server ${IMAP_SERVER}

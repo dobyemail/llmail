@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     accelerate \
     sentencepiece \
     protobuf \
+    python-dotenv \
     faker \
     lorem \
     pytest \

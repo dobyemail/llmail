@@ -35,6 +35,8 @@ cd llmail
 # Uruchom skrypt instalacyjny
 chmod +x install.sh
 ./install.sh
+# lub użyj Makefile:
+make install
 ```
 
 Lub ręcznie:
@@ -119,7 +121,8 @@ python email_organizer.py --email twoj@email.com --password haslo --dry-run
 # Podstawowe użycie
 python email_responder.py --email twoj@email.com --password haslo
 
-# Z wyborem modelu
+# Domyślny model: Qwen/Qwen2.5-7B-Instruct
+# Z wyborem innego modelu
 python email_responder.py --email twoj@email.com --password haslo --model mistralai/Mistral-7B-Instruct-v0.2
 
 # Przetwarzanie określonego folderu
@@ -132,11 +135,33 @@ python email_responder.py --email twoj@email.com --password haslo --offline --dr
 python email_responder.py --email twoj@email.com --password haslo --temperature 0.8 --max-tokens 300
 ```
 
+Alternatywnie (Docker + Makefile):
+
+```bash
+# Domyślnie użyje Qwen/Qwen2.5-7B-Instruct
+make respond
+
+# Wymuś inny model
+make respond MODEL="mistralai/Mistral-7B-Instruct-v0.2"
+```
+
+### Konfiguracja przez .env (fallback)
+
+Skrypty automatycznie ładują zmienne z pliku `.env` (python-dotenv). Priorytet wartości:
+
+1) Parametry CLI (`--email`, `--password`, `--server`, `--smtp`, `--model`, itd.)
+2) Zmienne z `.env` (`EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `IMAP_SERVER`, `SMTP_SERVER`, `MODEL_NAME`, `LIMIT`, `TEMPERATURE`, `MAX_TOKENS`, `SMTP_HOST`, ...)
+3) Wbudowane wartości domyślne (np. model `Qwen/Qwen2.5-7B-Instruct`, `LIMIT=10`, `TEMPERATURE=0.7`, `MAX_TOKENS=500`)
+
+Jeśli nie podasz wymaganych danych logowania w CLI i nie będą one dostępne w `.env`, skrypt zakończy się komunikatem o brakujących zmiennych.
+
 ## 🤖 Rekomendowane modele LLM (do 8B)
 
-1. **Mistral 7B Instruct** - Najlepsza wydajność
-2. **Llama 3.2 8B Instruct** - Dobra jakość odpowiedzi
-3. **Qwen2.5 7B Instruct** - Świetny dla języków innych niż angielski
+Domyślnie używamy: **Qwen 2.5 7B Instruct**.
+
+1. **Qwen 2.5 7B Instruct** - Domyślny, bardzo wszechstronny
+2. **Mistral 7B Instruct** - Bardzo dobra wydajność
+3. **Llama 3.2 8B Instruct** - Dobra jakość odpowiedzi
 4. **Gemma 2 9B** - Lekko ponad limit, ale bardzo wydajny
 
 ## ⚙️ Konfiguracja dla popularnych dostawców
