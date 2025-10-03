@@ -13,12 +13,14 @@ RUN apt-get update && apt-get install -y \
 # Utworzenie katalogu roboczego
 WORKDIR /app
 
+# Kopiowanie plików wymagań (jeśli istnieje)
+COPY requirements.txt* ./
+
 # Kopiowanie plików aplikacji
-COPY requirements.txt .
-COPY email_organizer.py .
-COPY email_responder.py .
+COPY email_organizer_bot.py .
+COPY email_responder_bot.py .
+COPY email_generator.py .
 COPY test_suite.py .
-COPY generate_test_emails.py .
 
 # Instalacja zależności Python
 RUN pip install --no-cache-dir --upgrade pip && \

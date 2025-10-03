@@ -1,0 +1,26 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-cov \
+    pytest-html \
+    pytest-timeout \
+    requests \
+    colorama \
+    faker \
+    lorem \
+    numpy \
+    scikit-learn \
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    transformers
+
+COPY *.py .
+
+CMD ["pytest", "-v", "--cov=.", "--cov-report=html:test-results/coverage", "--html=test-results/report.html", "--self-contained-html"]

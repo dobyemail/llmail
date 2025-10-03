@@ -1,7 +1,4 @@
 
-# ============================================
-# Makefile - Automatyzacja zarządzania
-# ============================================
 .PHONY: help build up down test clean logs shell
 
 # Kolory dla ładniejszego output

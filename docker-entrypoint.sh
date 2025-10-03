@@ -1,6 +1,3 @@
-# ============================================
-# docker-entrypoint.sh - Skrypt startowy głównego kontenera
-# ============================================
 #!/bin/bash
 set -e
 

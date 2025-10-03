@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MailHog - testowy serwer email z interfejsem webowym
   mailhog:
@@ -80,7 +78,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./reports:/app/reports
-    command: ["python", "email_organizer.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot"]
+    command: ["python", "email_organizer_bot.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot"]
 
   # Bot odpowiadający na emaile
   email-responder:
@@ -103,7 +101,7 @@ services:
       - ./logs:/app/logs
       - ./reports:/app/reports
       - ./models:/app/models
-    command: ["python", "email_responder.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot", "--model", "microsoft/DialoGPT-small", "--limit", "10"]
+    command: ["python", "email_responder_bot.py", "--email", "test@localhost", "--password", "testpass123", "--server", "dovecot", "--model", "microsoft/DialoGPT-small", "--limit", "10"]
 
   # Testy integracyjne
   test-runner:
