@@ -52,7 +52,7 @@ All notable changes to this project will be documented in this file.
 - **OOM Protection**: Auto-clamp `max_new_tokens` to 1024 on GPU, CPU fallback on OOM
 - **Folder Tree View**: Hierarchical display with connectors, skips "." entries
 - **Unsafe Category Migration**: Auto-rename folders with special characters (e.g., `Category_[alert]` → `Category_alert`)
-- **Makefile Commands**: Added `llmail-generate`, `llmail-clean`, `llmail-write`, `llmail-test`, `publish`, `test-install`
+- **Makefile Commands**: Added `llmass-generate`, `llmass-clean`, `llmass-write`, `llmass-test`, `publish`, `test-install`
 - **Auto-versioning**: `publish.sh` now automatically increments patch version and runs tests before build
 - **Dependencies**: Added `faker` and `lorem` for test email generation
 

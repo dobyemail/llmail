@@ -45,8 +45,8 @@ pip install llmass
 
 ```bash
 # Sklonuj repozytorium
-git clone https://github.com/dobyemail/llmail.git
-cd llmail
+git clone https://github.com/dobyemail/llmass.git
+cd llmass
 
 # Uruchom skrypt instalacyjny
 chmod +x install.sh
@@ -149,51 +149,51 @@ Funkcje:
 ### Instalacja z PyPI
 
 ```bash
-pip install llmail
+pip install llmass
 ```
 
 ### Komendy CLI
 
-llmail oferuje zunifikowany interfejs CLI z subkomendami:
+llmass oferuje zunifikowany interfejs CLI z subkomendami:
 
-#### `llmail generate` - Generowanie testowych emaili
+#### `llmass generate` - Generowanie testowych emaili
 
 ```bash
 # Podstawowe użycie (localhost SMTP)
-llmail generate --num-emails 50 --spam-ratio 0.2
+llmass generate --num-emails 50 --spam-ratio 0.2
 
 # Z własnym serwerem SMTP
-llmail generate --smtp-host mailhog --smtp-port 1025 --num-emails 100
+llmass generate --smtp-host mailhog --smtp-port 1025 --num-emails 100
 
 # Do konkretnego odbiorcy
-llmail generate --to test@localhost --num-emails 20
+llmass generate --to test@localhost --num-emails 20
 ```
 
-#### `llmail clean` - Organizacja i kategoryzacja emaili
+#### `llmass clean` - Organizacja i kategoryzacja emaili
 
 ```bash
 # Podstawowe użycie
-llmail clean --email twoj@email.com --password haslo
+llmass clean --email twoj@email.com --password haslo
 
 # Z własnym serwerem IMAP
-llmail clean --email twoj@email.com --password haslo --server imap.example.com
+llmass clean --email twoj@email.com --password haslo --server imap.example.com
 
 # Tryb testowy (bez przenoszenia)
-llmail clean --dry-run
+llmass clean --dry-run
 
 # Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
-llmail clean --limit 200 --since-days 14
+llmass clean --limit 200 --since-days 14
 # lub do konkretnej daty (YYYY-MM-DD)
-llmail clean --since-date 2025-09-20 --limit 50
+llmass clean --since-date 2025-09-20 --limit 50
 
 # Czułość grupowania (progi konfigurowalne)
-llmail clean \
+llmass clean \
   --similarity-threshold 0.20 \
   --min-cluster-size 2 \
   --min-cluster-fraction 0.05
 
 # Przetwarzanie konkretnego folderu (i opcjonalnie podfolderów)
-llmail clean --folder INBOX --include-subfolders --limit 50
+llmass clean --folder INBOX --include-subfolders --limit 50
 
 # Cross-folder spam (porównanie z SPAM/Kosz)
 # Jeśli wiadomość z INBOX jest podobna do maili w SPAM/Kosz (cosine >= CROSS_SPAM_SIMILARITY),
@@ -201,43 +201,43 @@ llmail clean --folder INBOX --include-subfolders --limit 50
 # (próbkujemy do CROSS_SPAM_SAMPLE_LIMIT wiadomości referencyjnych)
 export CROSS_SPAM_SIMILARITY=0.6
 export CROSS_SPAM_SAMPLE_LIMIT=200
-llmail clean --limit 50 --since-days 7
+llmass clean --limit 50 --since-days 7
 ```
 
-#### `llmail write` - Generowanie odpowiedzi z AI
+#### `llmass write` - Generowanie odpowiedzi z AI
 
 ```bash
 # Podstawowe użycie
-llmail write --email twoj@email.com --password haslo
+llmass write --email twoj@email.com --password haslo
 
 # Domyślny model: Qwen/Qwen2.5-7B-Instruct
-llmail write --model mistralai/Mistral-7B-Instruct-v0.2
+llmass write --model mistralai/Mistral-7B-Instruct-v0.2
 
 # Przetwarzanie określonego folderu
-llmail write --folder "Important" --limit 5
+llmass write --folder "Important" --limit 5
 
 # Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
-llmail write --limit 100 --since-days 7
-llmail write --limit 50 --since-date 2025-09-20
+llmass write --limit 100 --since-days 7
+llmass write --limit 50 --since-date 2025-09-20
 
 # Parametry generowania
-llmail write --temperature 0.7 --max-tokens 512
+llmass write --temperature 0.7 --max-tokens 512
 
 # Tryb offline (mock responses, bez LLM)
-llmail write --offline --limit 10
+llmass write --offline --limit 10
 ```
 
-#### `llmail test` - Uruchom testy
+#### `llmass test` - Uruchom testy
 
 ```bash
 # Uruchom wszystkie testy
-llmail test
+llmass test
 
 # Tryb verbose
-llmail test --verbose
+llmass test --verbose
 
 # Szybkie testy (bez integracyjnych)
-llmail test --quick
+llmass test --quick
 ```
 
 ### Backwards Compatibility
@@ -245,10 +245,10 @@ llmail test --quick
 Stare komendy nadal działają dla kompatybilności wstecznej:
 
 ```bash
-# Zamiast: llmail clean
+# Zamiast: llmass clean
 email-organizer --email twoj@email.com --password haslo
 
-# Zamiast: llmail write
+# Zamiast: llmass write
 email-responder --email twoj@email.com --password haslo
 
 # Lub bezpośrednio:
