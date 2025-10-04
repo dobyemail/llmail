@@ -74,6 +74,9 @@ services:
       - IMAP_SERVER=dovecot
       - IMAP_PORT=143
       - MODE=organizer
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.25}
+      - MIN_CLUSTER_SIZE=${MIN_CLUSTER_SIZE:-2}
+      - MIN_CLUSTER_FRACTION=${MIN_CLUSTER_FRACTION:-0.10}
     networks:
       - email-test-network
     depends_on:

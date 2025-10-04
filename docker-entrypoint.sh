@@ -19,21 +19,20 @@ case $MODE in
         
     organizer)
         echo "📁 Running EMAIL ORGANIZER"
-        python email_organizer.py \
-            --email ${EMAIL_ADDRESS} \
-            --password ${EMAIL_PASSWORD} \
-            --server ${IMAP_SERVER}
+        ARGS="--email ${EMAIL_ADDRESS} --password ${EMAIL_PASSWORD} --server ${IMAP_SERVER}"
+        if [ "${DRY_RUN}" = "true" ] || [ "${DRY_RUN}" = "1" ]; then
+            ARGS="$ARGS --dry-run"
+        fi
+        python email_organizer.py $ARGS
         ;;
         
     responder)
         echo "💬 Running EMAIL RESPONDER"
-        python email_responder.py \
-            --email ${EMAIL_ADDRESS} \
-            --password ${EMAIL_PASSWORD} \
-            --server ${IMAP_SERVER} \
-            --smtp ${SMTP_SERVER} \
-            --model ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct} \
-            --limit ${LIMIT:-10}
+        ARGS="--email ${EMAIL_ADDRESS} --password ${EMAIL_PASSWORD} --server ${IMAP_SERVER} --smtp ${SMTP_SERVER} --model ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct} --limit ${LIMIT:-10}"
+        if [ "${DRY_RUN}" = "true" ] || [ "${DRY_RUN}" = "1" ]; then
+            ARGS="$ARGS --dry-run"
+        fi
+        python email_responder.py $ARGS
         ;;
         
     generator)

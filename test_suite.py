@@ -172,6 +172,20 @@ class TestEmailBots:
         self.print_success(f"INBOX contains {email_count} emails")
         
         organizer_bot.disconnect()
+
+    def test_imap_list_parsing(self, organizer_bot):
+        """Test: Parsowanie IMAP LIST"""
+        self.print_test_header("IMAP LIST Parsing")
+        
+        organizer_bot.connect()
+        try:
+            folders = organizer_bot.get_folders()
+            assert len(folders) > 0, "No folders parsed from LIST"
+            assert not any(f.strip() in ('.', '..') for f in folders), "LIST parsing returned dot placeholders"
+            assert any('inbox' in f.lower() for f in folders), "INBOX not found in folders"
+            self.print_success("LIST parsing returned proper folder names")
+        finally:
+            organizer_bot.disconnect()
     
     def test_spam_detection(self, organizer_bot):
         """Test 5: Wykrywanie spamu"""
@@ -245,8 +259,9 @@ class TestEmailBots:
                 self.print_info("No new folders were needed")
             
             # Sprawdź folder SPAM
-            assert 'SPAM' in final_folders, "SPAM folder not created"
-            self.print_success("SPAM folder exists")
+            spam_exists = any(('spam' in f.lower()) or ('junk' in f.lower()) for f in final_folders)
+            assert spam_exists, "SPAM/Junk folder not created"
+            self.print_success("SPAM/Junk folder exists")
             
         finally:
             organizer_bot.disconnect()

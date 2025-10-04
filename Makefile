@@ -1,6 +1,20 @@
 
 .PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog clean status report generate-emails organize respond
 
+# Docker Compose configuration
+COMPOSE_FILE := docker_compose.yml
+
+# Detect docker compose command
+ifeq (,$(shell command -v docker-compose 2>/dev/null))
+  ifeq (,$(shell docker compose version 2>/dev/null))
+    $(error Neither 'docker-compose' nor 'docker compose' is available. Please install Docker Compose.)
+  else
+    DC := docker compose
+  endif
+else
+  DC := docker-compose
+endif
+
 # Kolory dla ładniejszego output
 GREEN := \033[0;32m
 YELLOW := \033[0;33m
@@ -23,17 +37,17 @@ help: ## Wyświetl pomoc
 
 build: ## Zbuduj wszystkie obrazy Docker
 	@echo "$(YELLOW)🔨 Building Docker images...$(NC)"
-	docker-compose build --parallel
+	$(DC) -f $(COMPOSE_FILE) build --parallel
 
 up: ## Uruchom wszystkie serwisy
 	@echo "$(GREEN)🚀 Starting services...$(NC)"
-	docker-compose up -d
+	$(DC) -f $(COMPOSE_FILE) up -d
 	@echo "$(GREEN)✅ Services started!$(NC)"
 	@echo "$(BLUE)📊 MailHog UI: http://localhost:8025$(NC)"
 
 down: ## Zatrzymaj wszystkie serwisy
 	@echo "$(YELLOW)⏹️  Stopping services...$(NC)"
-	docker-compose down -v
+	$(DC) -f $(COMPOSE_FILE) down -v
 
 install: ## Zainstaluj lokalnie (venv + pip install)
 	@echo "$(YELLOW)📦 Installing locally...$(NC)"
@@ -42,32 +56,32 @@ install: ## Zainstaluj lokalnie (venv + pip install)
 
 test: build ## Uruchom pełny test suite
 	@echo "$(YELLOW)🧪 Running test suite...$(NC)"
-	docker-compose up -d mailhog dovecot
+	$(DC) -f $(COMPOSE_FILE) up -d mailhog dovecot
 	@sleep 5
-	docker-compose run --rm email-generator
+	$(DC) -f $(COMPOSE_FILE) run --rm email-generator
 	@sleep 3
-	docker-compose run --rm email-organizer
+	$(DC) -f $(COMPOSE_FILE) run --rm email-organizer
 	@sleep 2
-	docker-compose run --rm email-responder
+	$(DC) -f $(COMPOSE_FILE) run --rm email-responder
 	@sleep 2
-	docker-compose run --rm test-runner
+	$(DC) -f $(COMPOSE_FILE) run --rm test-runner
 	@echo "$(GREEN)✅ Tests completed!$(NC)"
 
 test-quick: ## Szybki test (bez pełnego buildu)
 	@echo "$(YELLOW)⚡ Quick test...$(NC)"
-	docker-compose run --rm test-runner
+	$(DC) -f $(COMPOSE_FILE) run --rm test-runner
 
 logs: ## Pokaż logi wszystkich serwisów
-	docker-compose logs -f --tail=100
+	$(DC) -f $(COMPOSE_FILE) logs -f --tail=100
 
 logs-organizer: ## Pokaż logi organizera
-	docker-compose logs -f email-organizer
+	$(DC) -f $(COMPOSE_FILE) logs -f email-organizer
 
 logs-responder: ## Pokaż logi respondera
-	docker-compose logs -f email-responder
+	$(DC) -f $(COMPOSE_FILE) logs -f email-responder
 
 shell: ## Otwórz shell w kontenerze testowym
-	docker-compose run --rm test-runner /bin/bash
+	$(DC) -f $(COMPOSE_FILE) run --rm test-runner /bin/bash
 
 shell-mailhog: ## Otwórz przeglądarkę z MailHog UI
 	@echo "$(BLUE)🌐 Opening MailHog UI...$(NC)"
@@ -75,13 +89,13 @@ shell-mailhog: ## Otwórz przeglądarkę z MailHog UI
 
 clean: down ## Wyczyść wszystko (kontenery, obrazy, volumes)
 	@echo "$(RED)🧹 Cleaning up...$(NC)"
-	docker-compose down -v --rmi all
+	$(DC) -f $(COMPOSE_FILE) down -v --rmi all
 	rm -rf test-results/ logs/ reports/
 	@echo "$(GREEN)✨ Clean!$(NC)"
 
 status: ## Pokaż status serwisów
 	@echo "$(BLUE)📊 Service Status:$(NC)"
-	@docker-compose ps
+	@$(DC) -f $(COMPOSE_FILE) ps
 
 report: ## Otwórz raport z testów
 	@echo "$(BLUE)📈 Opening test report...$(NC)"
@@ -89,14 +103,14 @@ report: ## Otwórz raport z testów
 
 generate-emails: ## Generuj testowe emaile
 	@echo "$(YELLOW)📧 Generating test emails...$(NC)"
-	docker-compose run --rm email-generator
+	$(DC) -f $(COMPOSE_FILE) run --rm email-generator
 
 organize: ## Uruchom tylko organizera
 	@echo "$(GREEN)📁 Running organizer...$(NC)"
-	docker-compose run --rm email-organizer
+	$(DC) -f $(COMPOSE_FILE) run --rm email-organizer
 
 respond: ## Uruchom tylko respondera
 	@echo "$(GREEN)💬 Running responder...$(NC)"
 	# Użyj: make respond MODEL="mistralai/Mistral-7B-Instruct-v0.2"
-	docker-compose run --rm -e MODEL_NAME="$(MODEL)" email-responder
+	$(DC) -f $(COMPOSE_FILE) run --rm -e MODEL_NAME="$(MODEL)" email-responder
 

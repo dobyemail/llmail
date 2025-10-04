@@ -23,7 +23,9 @@ from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
 
 class EmailOrganizer:
-    def __init__(self, email_address: str, password: str, imap_server: str = None):
+    def __init__(self, email_address: str, password: str, imap_server: str = None,
+                 similarity_threshold: float = None, min_cluster_size: int = None,
+                 min_cluster_fraction: float = None):
         """Inicjalizacja bota organizującego emaile"""
         self.email_address = email_address
         self.password = password
@@ -35,7 +37,11 @@ class EmailOrganizer:
             self.imap_server = self._detect_imap_server(email_address)
         
         self.imap = None
-        self.vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+        self.vectorizer = TfidfVectorizer(max_features=100, stop_words=None)
+        # Parametry kategoryzacji (można nadpisać argumentami lub .env)
+        self.similarity_threshold = similarity_threshold if similarity_threshold is not None else float(os.getenv('SIMILARITY_THRESHOLD', '0.25'))
+        self.min_cluster_size = min_cluster_size if min_cluster_size is not None else int(os.getenv('MIN_CLUSTER_SIZE', '2'))
+        self.min_cluster_fraction = min_cluster_fraction if min_cluster_fraction is not None else float(os.getenv('MIN_CLUSTER_FRACTION', '0.10'))
         
     def _detect_imap_server(self, email_address: str) -> str:
         """Automatyczne wykrywanie serwera IMAP na podstawie domeny"""
@@ -69,9 +75,11 @@ class EmailOrganizer:
         folders = []
         result, folder_list = self.imap.list()
         
-        for folder in folder_list:
-            if folder:
-                folder_name = folder.decode().split('"')[-2]
+        for raw in folder_list:
+            if not raw:
+                continue
+            _flags, _delim, folder_name = self._parse_list_line(raw)
+            if folder_name:
                 folders.append(folder_name)
         
         return folders
@@ -88,6 +96,62 @@ class EmailOrganizer:
         except Exception:
             pass
         return '/'
+
+    def _encode_mailbox(self, name: str) -> str:
+        """Koduje nazwę folderu IMAP do 'imap4-utf-7' (ASCII-only string) dla metod IMAP.
+        Zwraca string ASCII, aby imaplib nie próbował kodować znaków nie-ASCII.
+        """
+        try:
+            if isinstance(name, (bytes, bytearray)):
+                # Załóżmy, że to już UTF-7; spróbuj zdekodować do ASCII
+                try:
+                    return bytes(name).decode('ascii')
+                except Exception:
+                    return bytes(name).decode('imap4-utf-7', errors='ignore')
+            # Zamień Unicode na imap4-utf-7 (wynik to bajty tylko ASCII), następnie na str ASCII
+            return name.encode('imap4-utf-7').decode('ascii')
+        except Exception:
+            # Ostateczny fallback: usuń znaki nieobsługiwane
+            return str(name).encode('imap4-utf-7', errors='ignore').decode('ascii', errors='ignore')
+
+    def _parse_list_line(self, raw) -> Tuple[List[str], str, str]:
+        """Parsuje linię odpowiedzi LIST do (flags, delimiter, name).
+        Zwraca ([], '/', '') jeśli nie uda się sparsować.
+        """
+        try:
+            line = raw.decode(errors='ignore') if isinstance(raw, (bytes, bytearray)) else str(raw)
+            # Przykłady:
+            # (\HasNoChildren) "." "INBOX.Sent"
+            # (\HasChildren) "/" INBOX
+            # (\Noselect \HasChildren) "/" "[Gmail]"
+            m = re.match(r"\((?P<flags>[^)]*)\)\s+\"(?P<delim>[^\"]*)\"\s+(?P<name>.*)$", line)
+            if not m:
+                # Spróbuj bez cudzysłowów wokół delim
+                m2 = re.match(r"\((?P<flags>[^)]*)\)\s+(?P<delim>NIL|[^\s]+)\s+(?P<name>.*)$", line)
+                if not m2:
+                    return ([], '/', '')
+                flags_str = m2.group('flags') or ''
+                delim = m2.group('delim')
+                name = m2.group('name').strip()
+            else:
+                flags_str = m.group('flags') or ''
+                delim = m.group('delim')
+                name = m.group('name').strip()
+
+            # Usuń otaczające cudzysłowy z nazwy jeśli są
+            if name.startswith('"') and name.endswith('"') and len(name) >= 2:
+                name = name[1:-1]
+            # Zamień escapeowane cudzysłowy
+            name = name.replace('\\"', '"')
+
+            # Delim może być NIL (brak hierarchii)
+            if delim.upper() == 'NIL':
+                delim = self._get_hierarchy_delimiter() or '/'
+
+            flags = [f for f in flags_str.split() if f]
+            return (flags, delim, name)
+        except Exception:
+            return ([], '/', '')
 
     def _resolve_spam_folder_name(self) -> str:
         """Znajduje istniejący folder Spam/Junk lub tworzy INBOX<delim>SPAM"""
@@ -144,17 +208,20 @@ class EmailOrganizer:
             if result != 'OK' or not data:
                 print("ℹ️ Nie udało się pobrać listy folderów (LIST)")
                 return
-            delim = self._get_hierarchy_delimiter()
             folders = []
             for raw in data:
                 if not raw:
                     continue
-                decoded = raw.decode(errors='ignore')
-                parts = decoded.split('"')
-                delim_char = parts[1] if len(parts) >= 3 else delim
-                name = parts[-2] if len(parts) >= 3 else decoded
+                _flags, delim_char, name = self._parse_list_line(raw)
+                if not name:
+                    continue
+                # Pomijaj sztuczne wpisy
+                if name in ('.', '..'):
+                    continue
                 depth = name.count(delim_char) if delim_char else 0
                 folders.append((name, depth))
+            # Posortuj tak, aby rodzice poprzedzali dzieci (prosty sort leksykalny)
+            folders.sort(key=lambda x: x[0])
             print(f"\n📂 Struktura skrzynki ({len(folders)} folderów):")
             for name, depth in folders[:max_items]:
                 indent = '  ' * depth
@@ -165,15 +232,19 @@ class EmailOrganizer:
     def create_folder(self, folder_name: str):
         """Tworzy nowy folder"""
         try:
-            self.imap.create(folder_name)
-            print(f"📁 Utworzono folder: {folder_name}")
+            mailbox = self._encode_mailbox(folder_name)
+            typ, resp = self.imap.create(mailbox)
+            if typ == 'OK':
+                print(f"📁 Utworzono folder: {folder_name}")
+            else:
+                print(f"⚠️  Nie udało się utworzyć folderu {folder_name}: {typ} {resp}")
             # Subskrybuj nowy folder, by był widoczny w UI
             try:
                 self.subscribe_folder(folder_name)
             except Exception:
                 pass
-        except:
-            print(f"Folder {folder_name} już istnieje")
+        except Exception as e:
+            print(f"Folder {folder_name} już istnieje lub błąd tworzenia: {e}")
             # Dla pewności zasubskrybuj istniejący
             try:
                 self.subscribe_folder(folder_name)
@@ -183,7 +254,8 @@ class EmailOrganizer:
     def subscribe_folder(self, folder_name: str):
         """Subskrybuje folder, aby był widoczny w klientach poczty"""
         try:
-            typ, resp = self.imap.subscribe(folder_name)
+            mailbox = self._encode_mailbox(folder_name)
+            typ, resp = self.imap.subscribe(mailbox)
             if typ == 'OK':
                 print(f"🔔 Subskrybowano folder: {folder_name}")
         except Exception as e:
@@ -279,6 +351,11 @@ class EmailOrganizer:
             # Grupowanie emaili
             categories = defaultdict(list)
             used = set()
+            thr = getattr(self, 'similarity_threshold', 0.25)
+            min_required = max(
+                getattr(self, 'min_cluster_size', 2),
+                int(len(emails) * getattr(self, 'min_cluster_fraction', 0.10))
+            )
             
             for i in range(len(emails)):
                 if i in used:
@@ -287,12 +364,12 @@ class EmailOrganizer:
                 # Znajdź podobne emaile
                 similar_indices = []
                 for j in range(len(emails)):
-                    if similarities[i][j] > 0.3 and j not in used:  # Próg podobieństwa
+                    if similarities[i][j] >= thr and j not in used:
                         similar_indices.append(j)
                         used.add(j)
                 
-                # Jeśli grupa jest wystarczająco duża (>10% wszystkich)
-                if len(similar_indices) >= max(3, len(emails) * 0.1):
+                # Jeśli grupa jest wystarczająco duża
+                if len(similar_indices) >= min_required:
                     # Wygeneruj nazwę kategorii
                     category_name = self._generate_category_name(
                         [emails[idx] for idx in similar_indices]
@@ -328,6 +405,8 @@ class EmailOrganizer:
         try:
             # Upewnij się, że UID jest stringiem
             uid_str = email_id.decode() if isinstance(email_id, bytes) else str(email_id)
+            # Zakoduj nazwę folderu do IMAP UTF-7
+            mailbox = self._encode_mailbox(target_folder)
 
             # Jeśli serwer wspiera MOVE (RFC 6851), użyj go
             try:
@@ -338,14 +417,14 @@ class EmailOrganizer:
 
             if b"MOVE" in caps_joined:
                 print(f"➡️  Używam IMAP MOVE do: {target_folder}")
-                typ, resp = self.imap.uid('MOVE', uid_str, target_folder)
+                typ, resp = self.imap.uid('MOVE', uid_str, mailbox)
                 if typ == 'OK':
                     return True
                 else:
                     print(f"Błąd MOVE: {typ} {resp}, fallback na COPY/STORE")
 
             # Fallback: COPY + STORE \Deleted
-            typ, resp = self.imap.uid('COPY', uid_str, target_folder)
+            typ, resp = self.imap.uid('COPY', uid_str, mailbox)
             if typ == 'OK':
                 self.imap.uid('STORE', uid_str, '+FLAGS.SILENT', '(\\Deleted)')
                 return True
@@ -455,6 +534,10 @@ class EmailOrganizer:
             print("\n✅ Organizacja zakończona!")
         else:
             print("\nℹ️ Nie znaleziono wystarczająco dużych grup emaili do kategoryzacji")
+            try:
+                print(f"   (użyty próg podobieństwa: {self.similarity_threshold}, minimalny rozmiar klastra: {max(self.min_cluster_size, int(len(emails_data) * self.min_cluster_fraction))})")
+            except Exception:
+                pass
         
         # Ekspunge (usuń permanentnie oznaczone emaile)
         self.imap.expunge()
@@ -482,6 +565,12 @@ def main():
                        help='Ile dni wstecz analizować (domyślnie 7)')
     parser.add_argument('--since-date', type=str, default=None,
                        help='Alternatywnie: najstarsza data w formacie YYYY-MM-DD')
+    parser.add_argument('--similarity-threshold', type=float, default=None,
+                        help='Próg podobieństwa dla grupowania (0-1, domyślnie 0.25)')
+    parser.add_argument('--min-cluster-size', type=int, default=None,
+                        help='Minimalna liczba emaili w klastrze (domyślnie 2)')
+    parser.add_argument('--min-cluster-fraction', type=float, default=None,
+                        help='Minimalny ułamek wiadomości w klastrze (domyślnie 0.10)')
     
     args = parser.parse_args()
 
@@ -499,12 +588,28 @@ def main():
     since_days_arg = args.since_days if args.since_days is not None else int(since_days_env) if since_days_env else 7
     since_date_arg = args.since_date if args.since_date is not None else (since_date_env if since_date_env else None)
 
+    # Parametry kategoryzacji (argumenty/ENV)
+    sim_thr_env = os.getenv('SIMILARITY_THRESHOLD')
+    min_cluster_size_env = os.getenv('MIN_CLUSTER_SIZE')
+    min_cluster_fraction_env = os.getenv('MIN_CLUSTER_FRACTION')
+
+    similarity_threshold_arg = args.similarity_threshold if args.similarity_threshold is not None else (float(sim_thr_env) if sim_thr_env else None)
+    min_cluster_size_arg = args.min_cluster_size if args.min_cluster_size is not None else (int(min_cluster_size_env) if min_cluster_size_env else None)
+    min_cluster_fraction_arg = args.min_cluster_fraction if args.min_cluster_fraction is not None else (float(min_cluster_fraction_env) if min_cluster_fraction_env else None)
+
     if not email_arg or not password_arg:
         print("❌ Brak wymaganych danych logowania. Podaj --email/--password lub skonfiguruj plik .env (EMAIL_ADDRESS, EMAIL_PASSWORD).")
         sys.exit(1)
     
     # Utwórz i uruchom bota
-    bot = EmailOrganizer(email_arg, password_arg, server_arg)
+    bot = EmailOrganizer(
+        email_arg,
+        password_arg,
+        server_arg,
+        similarity_threshold=similarity_threshold_arg,
+        min_cluster_size=min_cluster_size_arg,
+        min_cluster_fraction=min_cluster_fraction_arg,
+    )
     
     if bot.connect():
         try:

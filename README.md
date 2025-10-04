@@ -8,7 +8,8 @@ Zestaw botów AI do automatycznego zarządzania pocztą email.
 - ✅ Automatyczna kategoryzacja emaili
 - ✅ Wykrywanie i przenoszenie spamu
 - ✅ Tworzenie nowych folderów dla podobnych wiadomości
-- ✅ Grupowanie emaili gdy stanowią >10% inbox
+- ✅ Konfigurowalne grupowanie (próg podobieństwa, min. rozmiar klastra, min. udział %)
+  - Domyślnie: similarity=0.25, min_size=2, min_fraction=0.10
 - ✅ Obsługa wielu serwerów pocztowych
 
 ### Email Responder Bot  
@@ -118,6 +119,12 @@ python email_organizer.py --email twoj@email.com --password haslo --dry-run
 python email_organizer.py --limit 200 --since-days 14
 # lub do konkretnej daty (YYYY-MM-DD)
 python email_organizer.py --since-date 2025-09-20 --limit 50
+
+# Czułość grupowania (progi konfigurowalne)
+python email_organizer.py \
+  --similarity-threshold 0.20 \
+  --min-cluster-size 2 \
+  --min-cluster-fraction 0.05
 ```
 
 ### Email Responder
@@ -155,6 +162,16 @@ Skrypty automatycznie ładują zmienne z pliku `.env` (python-dotenv). Priorytet
 3) Wbudowane wartości domyślne (np. model `Qwen/Qwen2.5-7B-Instruct`, `LIMIT=100`, `SINCE_DAYS=7`, `TEMPERATURE=0.7`, `MAX_TOKENS=500`)
 
 Jeśli nie podasz wymaganych danych logowania w CLI i nie będą one dostępne w `.env`, skrypt zakończy się komunikatem o brakujących zmiennych.
+
+#### Parametry kategoryzacji w `.env`
+Możesz globalnie ustawić progi grupowania (używane przez `email_organizer.py`):
+
+```
+SIMILARITY_THRESHOLD=0.25
+MIN_CLUSTER_SIZE=2
+MIN_CLUSTER_FRACTION=0.10
+```
+W Docker Compose możesz je nadpisać na poziomie usług lub w `.env`.
 
 ## 🤖 Rekomendowane modele LLM (do 8B)
 
@@ -196,6 +213,9 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `--limit`: Limit emaili do analizy (domyślnie: 100)
 - `--since-days`: Okno czasowe w dniach (domyślnie: 7)
 - `--since-date`: Najstarsza data w formacie `YYYY-MM-DD`
+- `--similarity-threshold`: Próg podobieństwa (0-1) dla grupowania, domyślnie `0.25`
+- `--min-cluster-size`: Minimalna liczba emaili w klastrze, domyślnie `2`
+- `--min-cluster-fraction`: Minimalny udział wiadomości w klastrze (0-1), domyślnie `0.10`
 
 ### Email Responder
 - `--email`: Adres email (wymagany)
