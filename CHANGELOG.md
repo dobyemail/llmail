@@ -21,6 +21,9 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Virtual Environment Support**: `publish.sh` now activates venv if present
 - **System Package Manager Conflicts**: Fallback to `--break-system-packages` when needed
+- **IMAP Data Parsing**: Added validation for IMAP FETCH response format to prevent `AttributeError: 'int' object has no attribute 'decode'`
+- **CUDA OOM Handling**: Simplified OOM recovery - now falls back to mock response instead of trying to move accelerate-dispatched models between devices
+- **Email Fetching**: Added try-except blocks and type checking for robust email retrieval
 
 ## [1.1.1] - 2025-10-04
 
