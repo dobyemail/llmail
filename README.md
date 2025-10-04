@@ -10,6 +10,7 @@ Zestaw botów AI do automatycznego zarządzania pocztą email.
 - ✅ Tworzenie nowych folderów dla podobnych wiadomości
 - ✅ Konfigurowalne grupowanie (próg podobieństwa, min. rozmiar klastra, min. udział %)
   - Domyślnie: similarity=0.25, min_size=2, min_fraction=0.10
+- ✅ Cross-folder spam: automatyczne przenoszenie maili z INBOX podobnych do wiadomości w SPAM/Kosz
 - ✅ Obsługa wielu serwerów pocztowych
 
 ### Email Responder Bot  
@@ -125,6 +126,14 @@ python email_organizer.py \
   --similarity-threshold 0.20 \
   --min-cluster-size 2 \
   --min-cluster-fraction 0.05
+
+# Cross-folder spam (porównanie z SPAM/Kosz)
+# Jeśli wiadomość z INBOX jest podobna do maili w SPAM/Kosz (cosine >= CROSS_SPAM_SIMILARITY),
+# zostanie automatycznie przeniesiona do SPAM
+# (próbkujemy do CROSS_SPAM_SAMPLE_LIMIT wiadomości referencyjnych)
+export CROSS_SPAM_SIMILARITY=0.6
+export CROSS_SPAM_SAMPLE_LIMIT=200
+python email_organizer.py --limit 50 --since-days 7
 ```
 
 ### Email Responder
@@ -170,6 +179,12 @@ Możesz globalnie ustawić progi grupowania (używane przez `email_organizer.py`
 SIMILARITY_THRESHOLD=0.25
 MIN_CLUSTER_SIZE=2
 MIN_CLUSTER_FRACTION=0.10
+
+#### Cross-folder spam w `.env`
+```
+CROSS_SPAM_SIMILARITY=0.6
+CROSS_SPAM_SAMPLE_LIMIT=200
+```
 ```
 W Docker Compose możesz je nadpisać na poziomie usług lub w `.env`.
 
@@ -216,6 +231,8 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `--similarity-threshold`: Próg podobieństwa (0-1) dla grupowania, domyślnie `0.25`
 - `--min-cluster-size`: Minimalna liczba emaili w klastrze, domyślnie `2`
 - `--min-cluster-fraction`: Minimalny udział wiadomości w klastrze (0-1), domyślnie `0.10`
+- `CROSS_SPAM_SIMILARITY` (ENV): Próg podobieństwa INBOX do SPAM/Kosz (0-1), domyślnie `0.6`
+- `CROSS_SPAM_SAMPLE_LIMIT` (ENV): Limit próby maili referencyjnych z SPAM/Kosz, domyślnie `200`
 
 ### Email Responder
 - `--email`: Adres email (wymagany)

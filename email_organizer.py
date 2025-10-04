@@ -7,10 +7,13 @@ Użycie: python email_organizer.py --email user@example.com --password pass123
 import imaplib
 import email
 from email.header import decode_header
+from email.utils import parseaddr
 import argparse
 import os
 import sys
 import re
+import unicodedata
+import string
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import hashlib
@@ -42,6 +45,15 @@ class EmailOrganizer:
         self.similarity_threshold = similarity_threshold if similarity_threshold is not None else float(os.getenv('SIMILARITY_THRESHOLD', '0.25'))
         self.min_cluster_size = min_cluster_size if min_cluster_size is not None else int(os.getenv('MIN_CLUSTER_SIZE', '2'))
         self.min_cluster_fraction = min_cluster_fraction if min_cluster_fraction is not None else float(os.getenv('MIN_CLUSTER_FRACTION', '0.10'))
+        # Parametry porównania z koszem/SPAM
+        self.cross_spam_similarity = float(os.getenv('CROSS_SPAM_SIMILARITY', '0.6'))
+        self.cross_spam_sample_limit = int(os.getenv('CROSS_SPAM_SAMPLE_LIMIT', '200'))
+        # Parametry dopasowania do istniejących kategorii
+        self.category_match_similarity = float(os.getenv('CATEGORY_MATCH_SIMILARITY', '0.5'))
+        self.category_sender_weight = float(os.getenv('CATEGORY_SENDER_WEIGHT', '0.2'))
+        self.category_sample_limit = int(os.getenv('CATEGORY_SAMPLE_LIMIT', '50'))
+        # Sprzątanie: usuwaj puste foldery kategorii przy starcie
+        self.cleanup_empty_categories = os.getenv('CLEANUP_EMPTY_CATEGORY_FOLDERS', 'true').lower() in ('1', 'true', 'yes')
         
     def _detect_imap_server(self, email_address: str) -> str:
         """Automatyczne wykrywanie serwera IMAP na podstawie domeny"""
@@ -97,22 +109,45 @@ class EmailOrganizer:
             pass
         return '/'
 
-    def _encode_mailbox(self, name: str) -> str:
-        """Koduje nazwę folderu IMAP do 'imap4-utf-7' (ASCII-only string) dla metod IMAP.
-        Zwraca string ASCII, aby imaplib nie próbował kodować znaków nie-ASCII.
+    def _sanitize_folder_component(self, s: str, delim: str = None) -> str:
+        """Sanityzacja komponentu nazwy folderu do ASCII (bezpieczne znaki).
+        Zamienia znak delimitera na '_' aby uniknąć dodatkowych poziomów.
         """
-        try:
-            if isinstance(name, (bytes, bytearray)):
-                # Załóżmy, że to już UTF-7; spróbuj zdekodować do ASCII
-                try:
-                    return bytes(name).decode('ascii')
-                except Exception:
-                    return bytes(name).decode('imap4-utf-7', errors='ignore')
-            # Zamień Unicode na imap4-utf-7 (wynik to bajty tylko ASCII), następnie na str ASCII
-            return name.encode('imap4-utf-7').decode('ascii')
-        except Exception:
-            # Ostateczny fallback: usuń znaki nieobsługiwane
-            return str(name).encode('imap4-utf-7', errors='ignore').decode('ascii', errors='ignore')
+        if not s:
+            return 'Category'
+        # Usuń diakrytyki i znaki nie-ASCII
+        norm = unicodedata.normalize('NFKD', s)
+        ascii_only = ''.join(c for c in norm if not unicodedata.combining(c) and ord(c) < 128)
+        # Dopuść wybrane znaki
+        allowed = set(string.ascii_letters + string.digits + '._- ')
+        cleaned = ''.join(ch if ch in allowed else '_' for ch in ascii_only)
+        # Zastąp spacje podkreślnikami i przytnij
+        cleaned = re.sub(r'\s+', '_', cleaned).strip('_')
+        # Usuń delimiter hierarchii z komponentu (np. '.')
+        if delim:
+            cleaned = cleaned.replace(delim, '_')
+        return cleaned or 'Category'
+
+    def _encode_mailbox(self, name: str) -> str:
+        """Zwraca nazwę folderu ograniczoną do ASCII (bezpieczną dla wielu serwerów IMAP).
+        Jeżeli nazwa zawiera znaki spoza ASCII, zostaje zsanityzowana.
+        """
+        if isinstance(name, (bytes, bytearray)):
+            try:
+                name = bytes(name).decode('ascii')
+            except Exception:
+                name = bytes(name).decode('utf-8', errors='ignore')
+        if all(ord(c) < 128 for c in name):
+            return name
+        # Sanityzuj całą ścieżkę segment po segmencie (z zachowaniem delimitera)
+        delim = self._get_hierarchy_delimiter()
+        parts = name.split(delim)
+        if not parts:
+            return self._sanitize_folder_component(name, delim)
+        sanitized = [parts[0]]
+        for seg in parts[1:]:
+            sanitized.append(self._sanitize_folder_component(seg, delim))
+        return delim.join(sanitized)
 
     def _parse_list_line(self, raw) -> Tuple[List[str], str, str]:
         """Parsuje linię odpowiedzi LIST do (flags, delimiter, name).
@@ -192,14 +227,265 @@ class EmailOrganizer:
                 pass
         return candidate
 
-    def _resolve_category_folder_name(self, base_name: str) -> str:
-        """Zwraca pełną ścieżkę folderu kategorii w przestrzeni INBOX"""
+    def _find_trash_folders(self) -> List[str]:
+        """Zwraca listę folderów odpowiadających koszowi (Trash/Deleted/Bin/Kosz)."""
+        candidates = []
+        for name in self.get_folders():
+            low = (name or '').lower()
+            if any(tok in low for tok in ['trash', 'deleted', 'bin', 'kosz']):
+                candidates.append(name)
+        return candidates
+
+    def _fetch_texts_from_folder(self, folder: str, limit: int) -> List[str]:
+        """Pobiera do 'limit' najnowszych wiadomości z folderu i zwraca listę tekstów subject+body."""
+        texts: List[str] = []
+        try:
+            typ, _ = self.imap.select(folder)
+            if typ != 'OK':
+                return texts
+            res, data = self.imap.uid('SEARCH', None, 'ALL')
+            if res != 'OK' or not data or not data[0]:
+                return texts
+            uids = data[0].split()
+            take = uids[-limit:] if limit and len(uids) > limit else uids
+            for uid in take:
+                r, d = self.imap.uid('FETCH', uid, '(RFC822)')
+                if r != 'OK' or not d or not d[0]:
+                    continue
+                raw = d[0][1]
+                msg = email.message_from_bytes(raw)
+                content = self.get_email_content(msg)
+                texts.append(f"{content.get('subject','')} {content.get('body','')}")
+        except Exception:
+            pass
+        finally:
+            try:
+                self.imap.select('INBOX')
+            except Exception:
+                pass
+        return texts
+
+    def _fetch_messages_from_folder(self, folder: str, limit: int) -> List[Dict]:
+        """Pobiera do 'limit' najnowszych wiadomości: subject, body, from."""
+        msgs: List[Dict] = []
+        try:
+            typ, _ = self.imap.select(folder)
+            if typ != 'OK':
+                return msgs
+            res, data = self.imap.uid('SEARCH', None, 'ALL')
+            if res != 'OK' or not data or not data[0]:
+                return msgs
+            uids = data[0].split()
+            take = uids[-limit:] if limit and len(uids) > limit else uids
+            for uid in take:
+                r, d = self.imap.uid('FETCH', uid, '(RFC822)')
+                if r != 'OK' or not d or not d[0]:
+                    continue
+                raw = d[0][1]
+                msg = email.message_from_bytes(raw)
+                content = self.get_email_content(msg)
+                msgs.append(content)
+        except Exception:
+            pass
+        finally:
+            try:
+                self.imap.select('INBOX')
+            except Exception:
+                pass
+        return msgs
+
+    def _list_category_folders(self) -> List[str]:
+        """Zwraca listę istniejących folderów kategorii (INBOX.Category_*)."""
+        folders = self.get_folders()
         delim = self._get_hierarchy_delimiter()
-        # Jeśli nazwa już jest pełną ścieżką (zawiera INBOX lub delimiter), zwróć jak jest
-        lower = base_name.lower()
-        if lower.startswith('inbox') or delim in base_name:
-            return base_name
-        return f"INBOX{delim}{base_name}"
+        cat_folders: List[str] = []
+        for f in folders:
+            if not f:
+                continue
+            low = f.lower()
+            if not low.startswith('inbox'):
+                continue
+            # sprawdź ostatni segment
+            last = f.split(delim)[-1] if delim else f
+            if last.lower().startswith('category_'):
+                cat_folders.append(f)
+        return cat_folders
+
+    def _choose_existing_category_folder(self, cluster_emails: List[Dict]) -> str:
+        """Wybiera najlepszy istniejący folder kategorii dla poda nej grupy.
+        Zwraca nazwę folderu lub pusty string jeśli brak wystarczającego dopasowania.
+        """
+        candidates = self._list_category_folders()
+        if not candidates or not cluster_emails:
+            return ''
+
+        # Zbuduj dane klastra
+        cluster_texts = [f"{e.get('subject','')} {e.get('body','')}" for e in cluster_emails]
+        cluster_froms = set()
+        for e in cluster_emails:
+            _disp, a = parseaddr(e.get('from','') or '')
+            if a:
+                cluster_froms.add(a.lower())
+                if '@' in a:
+                    cluster_froms.add(a.lower().split('@')[-1])  # domena
+
+        best_folder = ''
+        best_score = -1.0
+        thr = float(self.category_match_similarity)
+        sender_w = float(self.category_sender_weight)
+        per_folder = max(1, int(self.category_sample_limit))
+
+        for folder in candidates:
+            msgs = self._fetch_messages_from_folder(folder, per_folder)
+            if not msgs:
+                continue
+            folder_texts = [f"{m.get('subject','')} {m.get('body','')}" for m in msgs]
+            # content similarity
+            try:
+                vec = TfidfVectorizer(max_features=100, stop_words=None)
+                all_texts = cluster_texts + folder_texts
+                tfidf = vec.fit_transform(all_texts)
+                c_mat = tfidf[:len(cluster_texts)]
+                f_mat = tfidf[len(cluster_texts):]
+                sims = cosine_similarity(c_mat, f_mat)
+                # średnia z maksymalnych podobieństw dla każdego maila z klastra
+                content_score = float(np.mean(np.max(sims, axis=1))) if sims.size else 0.0
+            except Exception:
+                content_score = 0.0
+
+            # sender overlap
+            folder_froms = set()
+            for m in msgs:
+                _d2, a2 = parseaddr(m.get('from','') or '')
+                if a2:
+                    folder_froms.add(a2.lower())
+                    if '@' in a2:
+                        folder_froms.add(a2.lower().split('@')[-1])
+            sender_overlap = 0.0
+            if cluster_froms and folder_froms:
+                sender_overlap = len(cluster_froms.intersection(folder_froms)) / max(1, len(cluster_emails))
+
+            score = content_score + sender_w * sender_overlap
+            if score > best_score:
+                best_score = score
+                best_folder = folder
+
+        if best_score >= thr:
+            return best_folder
+        return ''
+
+    def _cleanup_empty_category_folders(self):
+        """Usuwa puste foldery zaczynające się od Category* (na ostatnim segmencie)."""
+        if not self.cleanup_empty_categories:
+            return
+        try:
+            folders = self.get_folders()
+            delim = self._get_hierarchy_delimiter()
+            to_delete: List[str] = []
+            # Zidentyfikuj kandydatów
+            for name in folders:
+                if not name:
+                    continue
+                last = name.split(delim)[-1] if delim else name
+                if not last.lower().startswith('category'):
+                    continue
+                # Pomiń jeśli ma podfoldery
+                has_children = any((f != name) and f.startswith(name + (delim or '')) for f in folders)
+                if has_children:
+                    continue
+                # Sprawdź czy pusty
+                typ, _ = self.imap.select(name, readonly=True)
+                if typ != 'OK':
+                    continue
+                res, data = self.imap.uid('SEARCH', None, 'ALL')
+                count = len(data[0].split()) if res == 'OK' and data and data[0] else 0
+                if count == 0:
+                    to_delete.append(name)
+            # Usuń
+            for mbox in to_delete:
+                try:
+                    mailbox = self._encode_mailbox(mbox)
+                    try:
+                        self.imap.unsubscribe(mailbox)
+                    except Exception:
+                        pass
+                    typ, resp = self.imap.delete(mailbox)
+                    if typ == 'OK':
+                        print(f"🗑️  Usunięto pusty folder kategorii: {mbox}")
+                    else:
+                        print(f"⚠️  Nie udało się usunąć folderu {mbox}: {typ} {resp}")
+                except Exception as e:
+                    print(f"⚠️  Błąd podczas usuwania folderu {mbox}: {e}")
+        except Exception as e:
+            print(f"ℹ️  Czyszczenie pustych folderów kategorii nie powiodło się: {e}")
+
+    def _mark_inbox_like_spam(self, emails_data: List[Dict], spam_folder: str) -> Tuple[List[bytes], List[int]]:
+        """Zwraca (uids_do_spamu, indices_do_usuniecia_z_emails_data) dla maili podobnych do SPAM/Kosz."""
+        try:
+            # Zbierz teksty referencyjne ze SPAM i TRASH
+            ref_texts: List[str] = []
+            # SPAM
+            if spam_folder:
+                ref_texts += self._fetch_texts_from_folder(spam_folder, self.cross_spam_sample_limit)
+            # TRASH folders
+            trash_folders = self._find_trash_folders()
+            # Rozdziel limit na trashy jeśli wiele
+            per_folder = max(1, self.cross_spam_sample_limit // max(1, len(trash_folders))) if trash_folders else 0
+            for tf in trash_folders:
+                ref_texts += self._fetch_texts_from_folder(tf, per_folder)
+
+            if not ref_texts:
+                return ([], [])
+
+            # Teksty z INBOX do porównania
+            inbox_texts = [f"{e.get('subject','')} {e.get('body','')}" for e in emails_data]
+            # Wektoryzuj wspólnie
+            vec = TfidfVectorizer(max_features=100, stop_words=None)
+            all_texts = ref_texts + inbox_texts
+            tfidf = vec.fit_transform(all_texts)
+            ref_matrix = tfidf[:len(ref_texts)]
+            inbox_matrix = tfidf[len(ref_texts):]
+
+            # Oblicz podobieństwo inbox -> ref i weź max per email
+            sims = cosine_similarity(inbox_matrix, ref_matrix)
+            uids_to_spam: List[bytes] = []
+            indices_to_remove: List[int] = []
+            thr = float(self.cross_spam_similarity)
+            for idx in range(sims.shape[0]):
+                if sims.shape[1] == 0:
+                    break
+                max_sim = float(np.max(sims[idx]))
+                if max_sim >= thr:
+                    # Oznacz do przeniesienia do SPAM
+                    email_id = emails_data[idx]['id']
+                    # email_id może być bytes lub str; zachowaj bytes
+                    uid_b = email_id if isinstance(email_id, (bytes, bytearray)) else str(email_id).encode()
+                    uids_to_spam.append(uid_b)
+                    indices_to_remove.append(idx)
+            return (uids_to_spam, indices_to_remove)
+        except Exception as e:
+            print(f"ℹ️  Błąd porównania z TRASH/SPAM: {e}")
+            return ([], [])
+
+    def _resolve_category_folder_name(self, base_name: str) -> str:
+        """Zwraca pełną i bezpieczną (ASCII) ścieżkę folderu kategorii pod INBOX."""
+        delim = self._get_hierarchy_delimiter()
+        lower = base_name.lower() if base_name else ''
+        # Zbuduj pełną ścieżkę: zawsze pod INBOX, chyba że już zaczyna się od INBOX
+        if lower.startswith('inbox'):
+            full_path = base_name
+        else:
+            # Najpierw zsanityzuj nazwę kategorii jako pojedynczy komponent
+            safe_base = self._sanitize_folder_component(base_name or 'Category', delim)
+            full_path = f"INBOX{delim}{safe_base}"
+        # Sanityzuj segmenty poza korzeniem (gdy przekazano pełną ścieżkę)
+        parts = full_path.split(delim)
+        if not parts:
+            return self._encode_mailbox(full_path)
+        sanitized = [parts[0]]
+        for seg in parts[1:]:
+            sanitized.append(self._sanitize_folder_component(seg, delim))
+        return delim.join(sanitized)
     
     def print_mailbox_structure(self, max_items: int = 500):
         """Wyświetla strukturę skrzynki IMAP (LIST) z wcięciami wg delimitera"""
@@ -318,17 +604,51 @@ class EmailOrganizer:
         text_to_check = (email_content.get('subject', '') + ' ' + 
                         email_content.get('body', '')).lower()
         
+        # 1) Silne wzorce w treści/temacie
         for pattern in spam_patterns:
             if re.search(pattern, text_to_check, re.IGNORECASE):
                 return True
-        
-        # Sprawdź nadmierną ilość wielkich liter
-        if email_content.get('subject', ''):
-            caps_ratio = sum(1 for c in email_content['subject'] if c.isupper()) / len(email_content['subject'])
-            if caps_ratio > 0.7:
-                return True
-        
-        return False
+
+        score = 0
+
+        # 2) Nadmierna ilość wielkich liter w temacie (miękka heurystyka)
+        subj = email_content.get('subject', '') or ''
+        if subj:
+            upper_count = sum(1 for c in subj if c.isupper())
+            if len(subj) >= 5:
+                caps_ratio = upper_count / len(subj)
+                if caps_ratio > 0.7:
+                    score += 1
+
+        # 3) Heurystyki nadawcy (From)
+        from_raw = email_content.get('from', '') or ''
+        _display, addr = parseaddr(from_raw)
+        if addr and '@' in addr:
+            local, domain = addr.rsplit('@', 1)
+            local = local or ''
+            domain = domain.lower() or ''
+
+            # Podejrzane TLD
+            suspicious_tlds = (
+                '.xyz', '.top', '.club', '.work', '.click', '.link', '.pw', '.gq', '.tk', '.ml', '.info'
+            )
+            if any(domain.endswith(tld) for tld in suspicious_tlds):
+                score += 1
+
+            # Nadmiar cyfr w local-part
+            digits = sum(ch.isdigit() for ch in local)
+            if len(local) >= 8 and digits / max(len(local), 1) > 0.5:
+                score += 1
+
+            # Długie losowe ciągi znaków (prosta heurystyka: brak samogłosek w dłuższym fragmencie)
+            vowels = set('aeiou')
+            if len(local) >= 10 and sum(ch.lower() in vowels for ch in local) <= 1:
+                score += 1
+
+            # 'noreply' jest popularne, nie zwiększamy score za samą obecność
+
+        # Decyzja na podstawie sumy miękkich heurystyk nadawcy/tematu
+        return score >= 2
     
     def categorize_emails(self, emails: List[Dict]) -> Dict[str, List[int]]:
         """Kategoryzuje emaile używając klasteryzacji"""
@@ -436,6 +756,8 @@ class EmailOrganizer:
     def organize_mailbox(self, limit: int = 100, since_days: int = 7, since_date: str = None):
         """Główna funkcja organizująca skrzynkę"""
         print("\n🔄 Rozpoczynam organizację skrzynki email...")
+        # Usuń puste foldery Category* na starcie
+        self._cleanup_empty_category_folders()
         # Pokaż strukturę skrzynki przed operacjami
         self.print_mailbox_structure()
         
@@ -502,6 +824,15 @@ class EmailOrganizer:
         print(f"   - Do kategoryzacji: {len(emails_data)} emaili")
         
         # Przenieś spam
+        # Dodatkowe: wykryj podobne do SPAM/Kosz według podobieństwa
+        extra_spam_uids, rm_indices = self._mark_inbox_like_spam(emails_data, spam_folder)
+        for uid in extra_spam_uids:
+            spam_ids.append(uid)
+        # Usuń z emails_data maile, które zakwalifikowaliśmy jako SPAM
+        if rm_indices:
+            keep = [i for i in range(len(emails_data)) if i not in set(rm_indices)]
+            emails_data = [emails_data[i] for i in keep]
+
         for email_id in spam_ids:
             self.move_email(email_id, spam_folder)
 
@@ -521,10 +852,23 @@ class EmailOrganizer:
             for category_name, indices in categories.items():
                 print(f"   - {category_name}: {len(indices)} emaili")
                 
-                # Ustal pełną ścieżkę folderu kategorii pod INBOX
-                category_folder = self._resolve_category_folder_name(category_name)
-                # Utwórz folder (jeśli nie istnieje)
-                self.create_folder(category_folder)
+                # Spróbuj dopasować do istniejącej kategorii
+                cluster_emails = [emails_data[idx] for idx in indices]
+                matched_folder = self._choose_existing_category_folder(cluster_emails)
+                if matched_folder:
+                    category_folder = matched_folder
+                    print(f"   ↪️  Dopasowano do istniejącego folderu: {category_folder}")
+                else:
+                    # Ustal pełną ścieżkę folderu kategorii pod INBOX
+                    category_folder = self._resolve_category_folder_name(category_name)
+                    # Utwórz folder tylko jeśli nie istnieje
+                    try:
+                        existing = set(self.get_folders())
+                        if category_folder not in existing:
+                            self.create_folder(category_folder)
+                    except Exception:
+                        # W razie wątpliwości spróbuj mimo wszystko stworzyć
+                        self.create_folder(category_folder)
                 
                 # Przenieś emaile do folderu kategorii
                 for idx in indices:
