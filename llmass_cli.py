@@ -8,7 +8,7 @@ Komendy:
   llmass test     - Uruchom testy
 """
 
-__version__ = "1.1.7"
+__version__ = "1.1.8"
 
 import sys
 import argparse
@@ -29,7 +29,7 @@ def main():
         required=True
     )
     
-    # === llmail generate (email generator) ===
+    # === llmass generate (email generator) ===
     generate_parser = subparsers.add_parser(
         'generate',
         help='Generuj testowe emaile',
@@ -41,7 +41,7 @@ def main():
     generate_parser.add_argument('--spam-ratio', type=float, help='Proporcja spamu (0-1)')
     generate_parser.add_argument('--to', help='Adres odbiorcy')
     
-    # === llmail clean (email organizer) ===
+    # === llmass clean (email organizer) ===
     clean_parser = subparsers.add_parser(
         'clean',
         help='Organizuj i kategoryzuj emaile',
@@ -60,7 +60,7 @@ def main():
     clean_parser.add_argument('--min-cluster-size', type=int, help='Minimalny rozmiar klastra')
     clean_parser.add_argument('--min-cluster-fraction', type=float, help='Minimalny udział klastra (0-1)')
     
-    # === llmail write (email responder) ===
+    # === llmass write (email responder) ===
     write_parser = subparsers.add_parser(
         'write',
         help='Generuj odpowiedzi AI na emaile',
@@ -81,11 +81,11 @@ def main():
     write_parser.add_argument('--max-tokens', type=int, help='Maksymalna długość odpowiedzi')
     write_parser.add_argument('--offline', action='store_true', help='Tryb offline (mock responses)')
     
-    # === llmail test ===
+    # === llmass test ===
     test_parser = subparsers.add_parser(
         'test',
         help='Uruchom testy jednostkowe',
-        description='Testy funkcjonalności llmail'
+        description='Testy funkcjonalności llmass'
     )
     test_parser.add_argument('--verbose', '-v', action='store_true', help='Tryb verbose')
     test_parser.add_argument('--quick', action='store_true', help='Szybkie testy (bez integracyjnych)')

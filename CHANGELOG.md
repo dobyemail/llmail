@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [1.1.5] - 2025-10-04
 
 ### Changed
-- **Package Renamed**: `llmail` → `llmass` (LLM Mail Automation System)
+- **Package Renamed**: `llmass` → `llmass` (LLM Mail Automation System)
   - All CLI commands now use `llmass` prefix
-  - Entry point changed from `llmail` to `llmass`
+  - Entry point changed from `llmass` to `llmass`
   - GitHub repository and PyPI package renamed
 - **Automated Publishing**: `make publish` now automatically:
   - Increments patch version (no prompts)
@@ -40,12 +40,12 @@ All notable changes to this project will be documented in this file.
 ## [1.1.0] - 2025-10-04
 
 ### Added
-- **CLI Wrapper (`llmail`)**: Unified command-line interface with subcommands
-  - `llmail generate` - Generate test emails (replaces direct `email_generator.py`)
-  - `llmail clean` - Email organizer (replaces `email-organizer`)
-  - `llmail write` - Email responder with AI (replaces `email-responder`)
-  - `llmail test` - Run test suite
-- **PyPI Package**: Published as `llmail` on PyPI
+- **CLI Wrapper (`llmass`)**: Unified command-line interface with subcommands
+  - `llmass generate` - Generate test emails (replaces direct `email_generator.py`)
+  - `llmass clean` - Email organizer (replaces `email-organizer`)
+  - `llmass write` - Email responder with AI (replaces `email-responder`)
+  - `llmass test` - Run test suite
+- **PyPI Package**: Published as `llmass` on PyPI
 - **Backwards Compatibility**: Old commands (`email-organizer`, `email-responder`) still work
 - **Draft Folder Configuration**: `DRAFTS_FOLDER` env var with auto-detection fallback
 - **Email Signature Customization**: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_COMPANY` env vars for personalized signatures

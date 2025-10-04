@@ -38,7 +38,7 @@ Zestaw botów AI do automatycznego zarządzania pocztą email.
 ### Z PyPI (rekomendowane)
 
 ```bash
-pip install llmail
+pip install llmass
 ```
 
 ### Z repozytorium
