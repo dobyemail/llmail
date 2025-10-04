@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 import argparse
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
 import time
@@ -289,21 +289,73 @@ Z poważaniem,
             print(f"❌ Błąd podczas zapisywania draftu: {e}")
             return False
     
-    def process_emails(self, folder: str = "INBOX", limit: int = 10,
-                      filter_unread: bool = True, dry_run: bool = False):
+    def print_mailbox_structure(self, max_items: int = 500):
+        """Wyświetla strukturę skrzynki IMAP (LIST) z wcięciami wg delimitera"""
+        try:
+            result, data = self.imap.list()
+            if result != 'OK' or not data:
+                print("ℹ️ Nie udało się pobrać listy folderów (LIST)")
+                return
+            # Ustal delimiter z pierwszej pozycji jeśli dostępny
+            delim = '/'
+            try:
+                sample = data[0].decode()
+                parts = sample.split('"')
+                if len(parts) >= 3:
+                    delim = parts[1]
+            except Exception:
+                pass
+            folders = []
+            for raw in data:
+                if not raw:
+                    continue
+                decoded = raw.decode(errors='ignore')
+                parts = decoded.split('"')
+                delim_char = parts[1] if len(parts) >= 3 else delim
+                name = parts[-2] if len(parts) >= 3 else decoded
+                depth = name.count(delim_char) if delim_char else 0
+                folders.append((name, depth))
+            print(f"\n📂 Struktura skrzynki ({len(folders)} folderów):")
+            for name, depth in folders[:max_items]:
+                indent = '  ' * depth
+                print(f"  {indent}• {name}")
+        except Exception as e:
+            print(f"ℹ️ Nie udało się wyświetlić struktury skrzynki: {e}")
+
+    def process_emails(self, folder: str = "INBOX", limit: int = 100,
+                      filter_unread: bool = True, dry_run: bool = False,
+                      since_days: int = 7, since_date: str = None):
         """Przetwarza emaile i generuje odpowiedzi"""
         print(f"\n📧 Przetwarzam emaile z folderu: {folder}")
+        # Pokaż strukturę skrzynki przed operacjami
+        self.print_mailbox_structure()
         
         # Wybierz folder
         self.imap.select(folder)
         
-        # Szukaj emailów
+        # Zbuduj kryteria wyszukiwania z filtrem czasu
+        imap_since = None
+        if since_date:
+            try:
+                dt = datetime.strptime(since_date, '%Y-%m-%d')
+                imap_since = dt.strftime('%d-%b-%Y')
+            except Exception:
+                pass
+        if not imap_since and since_days is not None:
+            dt = datetime.now() - timedelta(days=since_days)
+            imap_since = dt.strftime('%d-%b-%Y')
+
+        tokens = []
         if filter_unread:
-            search_criteria = "UNSEEN"  # Tylko nieprzeczytane
+            tokens.append('UNSEEN')
         else:
-            search_criteria = "ALL"
-        
-        result, data = self.imap.search(None, search_criteria)
+            tokens.append('ALL')
+        if imap_since:
+            print(f"⏱️  Filtr czasu: od {imap_since}, limit: {limit}")
+            tokens.extend(['SINCE', imap_since])
+
+        # Użyj UID SEARCH dla stabilności
+        result, data = self.imap.uid('SEARCH', None, *tokens)
         
         if result != 'OK':
             print("❌ Błąd podczas pobierania emaili")
@@ -324,8 +376,8 @@ Z poważaniem,
         for idx, email_id in enumerate(email_ids, 1):
             print(f"\n--- Email {idx}/{len(email_ids)} ---")
             
-            # Pobierz email
-            result, data = self.imap.fetch(email_id, "(RFC822)")
+            # Pobierz email (UID FETCH)
+            result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
             if result != 'OK':
                 continue
             
@@ -416,6 +468,10 @@ def main():
                        help='Folder do przetworzenia (domyślnie: INBOX)')
     parser.add_argument('--limit', type=int, default=None,
                        help='Limit emaili do przetworzenia')
+    parser.add_argument('--since-days', type=int, default=None,
+                       help='Ile dni wstecz analizować (domyślnie 7)')
+    parser.add_argument('--since-date', type=str, default=None,
+                       help='Alternatywnie: najstarsza data w formacie YYYY-MM-DD')
     parser.add_argument('--all-emails', action='store_true',
                        help='Przetwarzaj wszystkie emaile, nie tylko nieprzeczytane')
     parser.add_argument('--dry-run', action='store_true',
@@ -438,7 +494,13 @@ def main():
     # liczby
     if args.limit is None:
         env_limit = os.getenv('LIMIT')
-        args.limit = int(env_limit) if env_limit is not None else 10
+        args.limit = int(env_limit) if env_limit is not None else 100
+    # Okno czasowe
+    if args.since_days is None:
+        env_since_days = os.getenv('SINCE_DAYS')
+        args.since_days = int(env_since_days) if env_since_days is not None else 7
+    if args.since_date is None:
+        args.since_date = os.getenv('SINCE_DATE')
     if args.temperature is None:
         env_temp = os.getenv('TEMPERATURE')
         args.temperature = float(env_temp) if env_temp is not None else 0.7
@@ -476,7 +538,9 @@ def main():
                 folder=args.folder,
                 limit=args.limit,
                 filter_unread=not args.all_emails,
-                dry_run=args.dry_run
+                dry_run=args.dry_run,
+                since_days=args.since_days,
+                since_date=args.since_date
             )
         finally:
             bot.disconnect()

@@ -11,7 +11,7 @@ import argparse
 import os
 import sys
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import hashlib
 from collections import defaultdict
@@ -76,13 +76,120 @@ class EmailOrganizer:
         
         return folders
     
+    def _get_hierarchy_delimiter(self) -> str:
+        """Pobiera delimiter hierarchii folderów (np. "/" lub ".")"""
+        try:
+            result, data = self.imap.list()
+            if result == 'OK' and data and len(data) > 0:
+                sample = data[0].decode()
+                parts = sample.split('"')
+                if len(parts) >= 3:
+                    return parts[1]
+        except Exception:
+            pass
+        return '/'
+
+    def _resolve_spam_folder_name(self) -> str:
+        """Znajduje istniejący folder Spam/Junk lub tworzy INBOX<delim>SPAM"""
+        folders = self.get_folders()
+        # Szukaj istniejącego folderu Spam/Junk
+        for name in folders:
+            lower = name.lower()
+            if 'spam' in lower or 'junk' in lower:
+                # Upewnij się, że folder jest subskrybowany
+                try:
+                    self.subscribe_folder(name)
+                except Exception:
+                    pass
+                return name
+        # Nie znaleziono - utwórz jako podfolder INBOX
+        delim = self._get_hierarchy_delimiter()
+        candidate = f"INBOX{delim}SPAM"
+        try:
+            self.imap.create(candidate)
+            print(f"📁 Utworzono folder: {candidate}")
+            # Subskrybuj, aby był widoczny w klientach
+            try:
+                self.subscribe_folder(candidate)
+            except Exception:
+                pass
+        except Exception:
+            # Jeśli tworzenie się nie powiedzie, spróbuj na najwyższym poziomie
+            alt = 'SPAM'
+            try:
+                self.imap.create(alt)
+                print(f"📁 Utworzono folder: {alt}")
+                try:
+                    self.subscribe_folder(alt)
+                except Exception:
+                    pass
+                return alt
+            except Exception:
+                pass
+        return candidate
+
+    def _resolve_category_folder_name(self, base_name: str) -> str:
+        """Zwraca pełną ścieżkę folderu kategorii w przestrzeni INBOX"""
+        delim = self._get_hierarchy_delimiter()
+        # Jeśli nazwa już jest pełną ścieżką (zawiera INBOX lub delimiter), zwróć jak jest
+        lower = base_name.lower()
+        if lower.startswith('inbox') or delim in base_name:
+            return base_name
+        return f"INBOX{delim}{base_name}"
+    
+    def print_mailbox_structure(self, max_items: int = 500):
+        """Wyświetla strukturę skrzynki IMAP (LIST) z wcięciami wg delimitera"""
+        try:
+            result, data = self.imap.list()
+            if result != 'OK' or not data:
+                print("ℹ️ Nie udało się pobrać listy folderów (LIST)")
+                return
+            delim = self._get_hierarchy_delimiter()
+            folders = []
+            for raw in data:
+                if not raw:
+                    continue
+                decoded = raw.decode(errors='ignore')
+                parts = decoded.split('"')
+                delim_char = parts[1] if len(parts) >= 3 else delim
+                name = parts[-2] if len(parts) >= 3 else decoded
+                depth = name.count(delim_char) if delim_char else 0
+                folders.append((name, depth))
+            print(f"\n📂 Struktura skrzynki ({len(folders)} folderów):")
+            for name, depth in folders[:max_items]:
+                indent = '  ' * depth
+                print(f"  {indent}• {name}")
+        except Exception as e:
+            print(f"ℹ️ Nie udało się wyświetlić struktury skrzynki: {e}")
+    
     def create_folder(self, folder_name: str):
         """Tworzy nowy folder"""
         try:
             self.imap.create(folder_name)
             print(f"📁 Utworzono folder: {folder_name}")
+            # Subskrybuj nowy folder, by był widoczny w UI
+            try:
+                self.subscribe_folder(folder_name)
+            except Exception:
+                pass
         except:
             print(f"Folder {folder_name} już istnieje")
+            # Dla pewności zasubskrybuj istniejący
+            try:
+                self.subscribe_folder(folder_name)
+            except Exception:
+                pass
+
+    def subscribe_folder(self, folder_name: str):
+        """Subskrybuje folder, aby był widoczny w klientach poczty"""
+        try:
+            typ, resp = self.imap.subscribe(folder_name)
+            if typ == 'OK':
+                print(f"🔔 Subskrybowano folder: {folder_name}")
+        except Exception as e:
+            # Nie wszystkie serwery wspierają SUBSCRIBE lub mogą mieć go wyłączone
+            # Pomijamy błąd w takim przypadku
+            pass
     
     def get_email_content(self, msg) -> Dict:
         """Ekstraktuje treść emaila"""
@@ -217,24 +324,45 @@ class EmailOrganizer:
         return f"Category_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     def move_email(self, email_id: str, target_folder: str):
-        """Przenosi email do określonego folderu"""
+        """Przenosi email do określonego folderu (UID-based)"""
         try:
-            # Kopiuj email do nowego folderu
-            result = self.imap.copy(email_id, target_folder)
-            if result[0] == 'OK':
-                # Oznacz jako usunięty w obecnym folderze
-                self.imap.store(email_id, '+FLAGS', '\\Deleted')
+            # Upewnij się, że UID jest stringiem
+            uid_str = email_id.decode() if isinstance(email_id, bytes) else str(email_id)
+
+            # Jeśli serwer wspiera MOVE (RFC 6851), użyj go
+            try:
+                cap_typ, caps = self.imap.capability()
+                caps_joined = b" ".join(caps) if caps else b""
+            except Exception:
+                caps_joined = b""
+
+            if b"MOVE" in caps_joined:
+                print(f"➡️  Używam IMAP MOVE do: {target_folder}")
+                typ, resp = self.imap.uid('MOVE', uid_str, target_folder)
+                if typ == 'OK':
+                    return True
+                else:
+                    print(f"Błąd MOVE: {typ} {resp}, fallback na COPY/STORE")
+
+            # Fallback: COPY + STORE \Deleted
+            typ, resp = self.imap.uid('COPY', uid_str, target_folder)
+            if typ == 'OK':
+                self.imap.uid('STORE', uid_str, '+FLAGS.SILENT', '(\\Deleted)')
                 return True
+            print(f"Błąd COPY: {typ} {resp}")
         except Exception as e:
-            print(f"Błąd podczas przenoszenia emaila: {e}")
-            return False
+            print(f"Błąd podczas przenoszenia emaila (UID): {e}")
+        return False
     
-    def organize_mailbox(self):
+    def organize_mailbox(self, limit: int = 100, since_days: int = 7, since_date: str = None):
         """Główna funkcja organizująca skrzynkę"""
         print("\n🔄 Rozpoczynam organizację skrzynki email...")
+        # Pokaż strukturę skrzynki przed operacjami
+        self.print_mailbox_structure()
         
-        # Utwórz folder SPAM jeśli nie istnieje
-        self.create_folder("SPAM")
+        # Ustal docelowy folder SPAM/Junk (twórz jeśli brak)
+        spam_folder = self._resolve_spam_folder_name()
+        print(f"📦 Docelowy folder SPAM/Junk: {spam_folder}")
         
         # Pobierz wszystkie foldery
         folders = self.get_folders()
@@ -242,23 +370,39 @@ class EmailOrganizer:
         
         # Analizuj INBOX
         self.imap.select("INBOX")
-        result, data = self.imap.search(None, "ALL")
+        # Ustal kryteria czasu
+        imap_since = None
+        if since_date:
+            try:
+                dt = datetime.strptime(since_date, '%Y-%m-%d')
+                imap_since = dt.strftime('%d-%b-%Y')
+            except Exception:
+                pass
+        if not imap_since and since_days is not None:
+            dt = datetime.now() - timedelta(days=since_days)
+            imap_since = dt.strftime('%d-%b-%Y')
+
+        if imap_since:
+            print(f"⏱️  Filtr czasu: od {imap_since}, limit: {limit}")
+            result, data = self.imap.uid('SEARCH', None, 'ALL', 'SINCE', imap_since)
+        else:
+            result, data = self.imap.uid('SEARCH', None, 'ALL')
         
         if result != 'OK':
-            print("❌ Błąd podczas pobierania emaili")
+            print("❌ Błąd podczas pobierania emaili (UID SEARCH)")
             return
         
-        email_ids = data[0].split()
+        email_ids = data[0].split()  # UIDs
         print(f"📧 Znaleziono {len(email_ids)} emaili w INBOX")
         
         # Pobierz i analizuj emaile
         emails_data = []
         spam_ids = []
         
-        for idx, email_id in enumerate(email_ids[:100], 1):  # Limit do 100 dla testów
-            print(f"Analizuję email {idx}/{min(len(email_ids), 100)}...", end='\r')
+        for idx, email_id in enumerate(email_ids[:limit], 1):
+            print(f"Analizuję email {idx}/{min(len(email_ids), limit)}...", end='\r')
             
-            result, data = self.imap.fetch(email_id, "(RFC822)")
+            result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
             if result != 'OK':
                 continue
             
@@ -280,10 +424,15 @@ class EmailOrganizer:
         
         # Przenieś spam
         for email_id in spam_ids:
-            self.move_email(email_id, "SPAM")
-        
+            self.move_email(email_id, spam_folder)
+
         if spam_ids:
             print(f"✅ Przeniesiono {len(spam_ids)} emaili do folderu SPAM")
+            # Upewnij się, że usunięte wiadomości zostały wyczyszczone ze źródła
+            try:
+                self.imap.expunge()
+            except Exception as e:
+                print(f"⚠️  EXPUNGE błąd: {e}")
         
         # Kategoryzuj pozostałe emaile
         categories = self.categorize_emails(emails_data)
@@ -293,13 +442,15 @@ class EmailOrganizer:
             for category_name, indices in categories.items():
                 print(f"   - {category_name}: {len(indices)} emaili")
                 
-                # Utwórz folder dla kategorii
-                self.create_folder(category_name)
+                # Ustal pełną ścieżkę folderu kategorii pod INBOX
+                category_folder = self._resolve_category_folder_name(category_name)
+                # Utwórz folder (jeśli nie istnieje)
+                self.create_folder(category_folder)
                 
-                # Przenieś emaile
+                # Przenieś emaile do folderu kategorii
                 for idx in indices:
                     email_id = emails_data[idx]['id']
-                    self.move_email(email_id, category_name)
+                    self.move_email(email_id, category_folder)
             
             print("\n✅ Organizacja zakończona!")
         else:
@@ -325,6 +476,12 @@ def main():
     parser.add_argument('--server', required=False, default=None, help='Serwer IMAP (opcjonalnie)')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Tylko analizuj, nie przenoś emaili')
+    parser.add_argument('--limit', type=int, default=None,
+                       help='Limit emaili do analizy (domyślnie 100)')
+    parser.add_argument('--since-days', type=int, default=None,
+                       help='Ile dni wstecz analizować (domyślnie 7)')
+    parser.add_argument('--since-date', type=str, default=None,
+                       help='Alternatywnie: najstarsza data w formacie YYYY-MM-DD')
     
     args = parser.parse_args()
 
@@ -332,6 +489,15 @@ def main():
     email_arg = args.email or os.getenv('EMAIL_ADDRESS')
     password_arg = args.password or os.getenv('EMAIL_PASSWORD')
     server_arg = args.server or os.getenv('IMAP_SERVER')
+
+    # Ustal limity i zakres czasu (fallback: env, potem domyślne)
+    limit_env = os.getenv('LIMIT')
+    since_days_env = os.getenv('SINCE_DAYS')
+    since_date_env = os.getenv('SINCE_DATE')
+
+    limit_arg = args.limit if args.limit is not None else int(limit_env) if limit_env else 100
+    since_days_arg = args.since_days if args.since_days is not None else int(since_days_env) if since_days_env else 7
+    since_date_arg = args.since_date if args.since_date is not None else (since_date_env if since_date_env else None)
 
     if not email_arg or not password_arg:
         print("❌ Brak wymaganych danych logowania. Podaj --email/--password lub skonfiguruj plik .env (EMAIL_ADDRESS, EMAIL_PASSWORD).")
@@ -342,7 +508,7 @@ def main():
     
     if bot.connect():
         try:
-            bot.organize_mailbox()
+            bot.organize_mailbox(limit=limit_arg, since_days=since_days_arg, since_date=since_date_arg)
         finally:
             bot.disconnect()
 

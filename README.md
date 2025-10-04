@@ -113,6 +113,11 @@ python email_organizer.py --email twoj@email.com --password haslo --server imap.
 
 # Tryb testowy (bez przenoszenia)
 python email_organizer.py --email twoj@email.com --password haslo --dry-run
+
+# Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
+python email_organizer.py --limit 200 --since-days 14
+# lub do konkretnej daty (YYYY-MM-DD)
+python email_organizer.py --since-date 2025-09-20 --limit 50
 ```
 
 ### Email Responder
@@ -122,18 +127,14 @@ python email_organizer.py --email twoj@email.com --password haslo --dry-run
 python email_responder.py --email twoj@email.com --password haslo
 
 # Domyślny model: Qwen/Qwen2.5-7B-Instruct
-# Z wyborem innego modelu
 python email_responder.py --email twoj@email.com --password haslo --model mistralai/Mistral-7B-Instruct-v0.2
 
 # Przetwarzanie określonego folderu
 python email_responder.py --email twoj@email.com --password haslo --folder "Important" --limit 5
 
-# Tryb offline (mock responses)
-python email_responder.py --email twoj@email.com --password haslo --offline --dry-run
-
-# Z parametrami generowania
-python email_responder.py --email twoj@email.com --password haslo --temperature 0.8 --max-tokens 300
-```
+# Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
+python email_responder.py --limit 100 --since-days 7
+python email_responder.py --limit 50 --since-date 2025-09-20
 
 Alternatywnie (Docker + Makefile):
 
@@ -151,7 +152,7 @@ Skrypty automatycznie ładują zmienne z pliku `.env` (python-dotenv). Priorytet
 
 1) Parametry CLI (`--email`, `--password`, `--server`, `--smtp`, `--model`, itd.)
 2) Zmienne z `.env` (`EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `IMAP_SERVER`, `SMTP_SERVER`, `MODEL_NAME`, `LIMIT`, `TEMPERATURE`, `MAX_TOKENS`, `SMTP_HOST`, ...)
-3) Wbudowane wartości domyślne (np. model `Qwen/Qwen2.5-7B-Instruct`, `LIMIT=10`, `TEMPERATURE=0.7`, `MAX_TOKENS=500`)
+3) Wbudowane wartości domyślne (np. model `Qwen/Qwen2.5-7B-Instruct`, `LIMIT=100`, `SINCE_DAYS=7`, `TEMPERATURE=0.7`, `MAX_TOKENS=500`)
 
 Jeśli nie podasz wymaganych danych logowania w CLI i nie będą one dostępne w `.env`, skrypt zakończy się komunikatem o brakujących zmiennych.
 
@@ -192,18 +193,23 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `--password`: Hasło (wymagany) 
 - `--server`: Serwer IMAP (opcjonalny)
 - `--dry-run`: Tylko analiza, bez zmian
+- `--limit`: Limit emaili do analizy (domyślnie: 100)
+- `--since-days`: Okno czasowe w dniach (domyślnie: 7)
+- `--since-date`: Najstarsza data w formacie `YYYY-MM-DD`
 
 ### Email Responder
 - `--email`: Adres email (wymagany)
 - `--password`: Hasło (wymagany)
 - `--model`: Model LLM do użycia
 - `--folder`: Folder do przetworzenia (domyślnie: INBOX)
-- `--limit`: Limit emaili (domyślnie: 10)
+- `--limit`: Limit emaili (domyślnie: 100)
 - `--all-emails`: Przetwarzaj wszystkie, nie tylko nieprzeczytane
 - `--dry-run`: Nie zapisuj draftów
 - `--temperature`: Kreatywność odpowiedzi (0.0-1.0)
 - `--max-tokens`: Maksymalna długość odpowiedzi
 - `--offline`: Tryb offline (mock responses)
+- `--since-days`: Okno czasowe w dniach (domyślnie: 7)
+- `--since-date`: Najstarsza data w formacie `YYYY-MM-DD`
 
 ## 🧪 Funkcje testowania
 
