@@ -1,21 +1,25 @@
-# TODO – Email AI Bots
+# TODO – llmail (Email AI Bots)
 
 Status na: 2025-10-04
 
-## Wysoki priorytet
-- [x] Makefile: użycie `-f docker_compose.yml` + autodetekcja `docker-compose` vs `docker compose` (`Makefile`)
-- [x] IMAP LIST parsing: poprawne nazwy folderów i struktura drzewa (`email_organizer.py`)
-- [x] Konfigurowalne progi klasteryzacji: `--similarity-threshold`, `--min-cluster-size`, `--min-cluster-fraction` + dokumentacja (`email_organizer.py`, `.env.example`, `README.md`)
-- [x] Test: asercja SPAM akceptuje `INBOX.SPAM`/`Spam`/`Junk` (nie twarde `SPAM`) (`test_suite.py`)
-- [x] Docker Compose: przekazanie progów klasteryzacji do `email-organizer` (`docker_compose.yml`)
-- [x] Test: IMAP LIST parsing (brak `.`/`..`, poprawna głębokość) (`test_suite.py`)
+## ✅ Ukończone (v1.1.0)
+- [x] CLI wrapper (`llmail clean/write/test`)
+- [x] Publikacja na PyPI jako pakiet `llmail`
+- [x] Makefile: `llmail-clean`, `llmail-write`, `llmail-test`, `publish`, `test-install`
+- [x] Konfigurowalne podpisy email: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_COMPANY`
+- [x] Draft folder auto-detection: `DRAFTS_FOLDER`
+- [x] OOM protection: auto-clamp max_tokens, CPU fallback
+- [x] Hierarchical folder tree view (connectors, skip ".")
+- [x] Unsafe category migration (e.g., `Category_[alert]` → `Category_alert`)
+- [x] Makefile: autodetekcja `docker-compose` vs `docker compose`
+- [x] IMAP LIST parsing: poprawne nazwy folderów
+- [x] Konfigurowalne progi klasteryzacji CLI/ENV
+- [x] DRY_RUN mode pełna obsługa
 
 ## Średni priorytet
-- [ ] Ulepszone wypisywanie drzewa: sort po segmentach, znaki drzewa (│├└), parametr `--max-folders` (`email_organizer.py`)
-- [ ] Stopwords PL/wielojęzyczne lub wykrywanie języka + `--stopwords` (`email_organizer.py`)
-- [x] DRY_RUN z Dockera: `DRY_RUN=true` -> `--dry-run` (entrypoint + compose) (`docker-entrypoint.sh`, `docker_compose.yml`)
-- [ ] Parametryzacja TF-IDF: `TFIDF_MAX_FEATURES` (CLI pending; ENV done) (`email_organizer.py`)
-- [ ] LOG_LEVEL i spójne logowanie strukturalne (Organizer częściowo, pozostałe skrypty pending)
+- [ ] Stopwords PL/wielojęzyczne lub wykrywanie języka + `--stopwords`
+- [ ] Parametryzacja TF-IDF: `TFIDF_MAX_FEATURES` via CLI (ENV done)
+- [ ] LOG_LEVEL i spójne logowanie strukturalne (częściowo done)
 
 ## Niski priorytet
 - [ ] Heurystyki spamu: analiza HTML, URL, „unsubscribe density” (większa precyzja) (`email_organizer.py`)

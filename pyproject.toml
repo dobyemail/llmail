@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llmail"
+dynamic = ["version"]
+description = "AI-powered email management: auto-categorize, detect spam, and generate responses with LLM"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Tom Sapletta"},
+]
+keywords = ["email", "imap", "spam", "categorization", "llm", "ai", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Communications :: Email",
+    "Topic :: Communications :: Email :: Filters",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy>=1.21.0",
+    "scikit-learn>=1.0.0",
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+    "accelerate>=0.20.0",
+    "sentencepiece>=0.1.99",
+    "protobuf>=3.20.0",
+    "python-dotenv>=1.0.0",
+    "faker>=18.0.0",
+    "lorem>=0.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dobyemail/llmail"
+Documentation = "https://github.com/dobyemail/llmail#readme"
+Repository = "https://github.com/dobyemail/llmail"
+"Bug Tracker" = "https://github.com/dobyemail/llmail/issues"
+
+[project.scripts]
+llmail = "llmail_cli:main"
+email-organizer = "email_organizer:main"
+email-responder = "email_responder:main"
+
+[tool.setuptools]
+py-modules = ["email_organizer", "email_responder", "email_generator", "llmail_cli", "test_suite"]
+
+[tool.setuptools.dynamic]
+version = {attr = "llmail_cli.__version__"}

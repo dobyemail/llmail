@@ -112,6 +112,10 @@ services:
       - IMAP_SERVER=dovecot
       - SMTP_SERVER=mailhog
       - MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+      - DRAFTS_FOLDER=${DRAFTS_FOLDER:-INBOX.Drafts}
+      - SENDER_NAME=${SENDER_NAME:-AI Assistant}
+      - SENDER_TITLE=${SENDER_TITLE:-}
+      - SENDER_COMPANY=${SENDER_COMPANY:-}
       - MODE=responder
     networks:
       - email-test-network
@@ -137,6 +141,7 @@ services:
       - IMAP_SERVER=dovecot
       - SMTP_SERVER=mailhog
       - MAILHOG_API=http://mailhog:8025
+      - DRAFTS_FOLDER=${DRAFTS_FOLDER:-INBOX.Drafts}
     networks:
       - email-test-network
     depends_on:

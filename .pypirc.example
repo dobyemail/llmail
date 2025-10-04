@@ -1,0 +1,14 @@
+[distutils]
+index-servers =
+    pypi
+    testpypi
+
+[pypi]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-AgE...  # Twój token API z https://pypi.org/manage/account/token/
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-AgE...  # Twój token API z https://test.pypi.org/manage/account/token/

@@ -1,0 +1,18 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include requirements.txt
+include .env.example
+recursive-include dovecot *
+exclude .env
+exclude TODO.md
+exclude Makefile
+exclude run_docker_tests.sh
+exclude install.sh
+exclude docker-entrypoint.sh
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude .git *
+recursive-exclude .idea *
+recursive-exclude venv *
+recursive-exclude llmail.egg-info *

@@ -1,5 +1,5 @@
 
-.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog clean status report generate-emails organize respond
+.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog status report generate-emails organize respond llmail-generate llmail-clean llmail-write llmail-test publish test-install
 
 # Docker Compose configuration
 COMPOSE_FILE := docker_compose.yml
@@ -30,10 +30,14 @@ help: ## Wyświetl pomoc
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(BLUE)%-15s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Przykłady użycia:$(NC)"
-	@echo "  make build      # Zbuduj obrazy Docker"
-	@echo "  make test       # Uruchom pełne testy"
-	@echo "  make install    # Zainstaluj lokalnie (venv + pip install)"
-	@echo "  make logs       # Pokaż logi"
+	@echo "  make build             # Zbuduj obrazy Docker"
+	@echo "  make test              # Uruchom pełne testy"
+	@echo "  make install           # Zainstaluj lokalnie (venv + pip install)"
+	@echo "  make llmail-generate   # Uruchom llmail generate (lokalnie)"
+	@echo "  make llmail-clean      # Uruchom llmail clean (lokalnie)"
+	@echo "  make llmail-write      # Uruchom llmail write (lokalnie)"
+	@echo "  make publish           # Zbuduj paczkę dla PyPI"
+	@echo "  make logs              # Pokaż logi"
 
 build: ## Zbuduj wszystkie obrazy Docker
 	@echo "$(YELLOW)🔨 Building Docker images...$(NC)"
@@ -113,4 +117,62 @@ respond: ## Uruchom tylko respondera
 	@echo "$(GREEN)💬 Running responder...$(NC)"
 	# Użyj: make respond MODEL="mistralai/Mistral-7B-Instruct-v0.2"
 	$(DC) -f $(COMPOSE_FILE) run --rm -e MODEL_NAME="$(MODEL)" email-responder
+
+# ============================================
+# llmail CLI commands (lokalnie, nie Docker)
+# ============================================
+
+llmail-generate: ## Uruchom llmail generate (lokalnie)
+	@echo "$(GREEN)📧 Running llmail generate...$(NC)"
+	@if command -v llmail >/dev/null 2>&1; then \
+		llmail generate --num-emails 50 --spam-ratio 0.2; \
+	else \
+		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		exit 1; \
+	fi
+
+llmail-clean: ## Uruchom llmail clean (lokalnie)
+	@echo "$(GREEN)🧹 Running llmail clean...$(NC)"
+	@if command -v llmail >/dev/null 2>&1; then \
+		llmail clean --limit 100 --since-days 7; \
+	else \
+		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		exit 1; \
+	fi
+
+llmail-write: ## Uruchom llmail write (lokalnie)
+	@echo "$(GREEN)✍️  Running llmail write...$(NC)"
+	@if command -v llmail >/dev/null 2>&1; then \
+		llmail write --offline --limit 5; \
+	else \
+		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		exit 1; \
+	fi
+
+llmail-test: ## Uruchom llmail test (lokalnie)
+	@echo "$(YELLOW)🧪 Running llmail test...$(NC)"
+	@if command -v llmail >/dev/null 2>&1; then \
+		llmail test --verbose; \
+	else \
+		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		exit 1; \
+	fi
+
+# ============================================
+# Publikacja na PyPI
+# ============================================
+
+test-install: ## Test instalacji lokalnej przed publikacją
+	@echo "$(YELLOW)🧪 Testing local installation...$(NC)"
+	chmod +x test_install.sh
+	./test_install.sh
+
+publish: ## Zbuduj paczkę dla PyPI
+	@echo "$(YELLOW)📦 Building package for PyPI...$(NC)"
+	chmod +x publish.sh
+	./publish.sh
+	@echo ""
+	@echo "$(GREEN)✅ Package built successfully!$(NC)"
+	@echo "$(BLUE)To upload to PyPI:$(NC)"
+	@echo "  python3 -m twine upload dist/*"
 

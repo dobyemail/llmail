@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
 import time
+import gc
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
 import torch
@@ -41,6 +42,11 @@ class EmailResponder:
             self.smtp_server = self._detect_smtp_server(email_address)
         
         self.imap = None
+        
+        # Konfiguracja podpisu z ENV
+        self.sender_name = os.getenv('SENDER_NAME', email_address.split('@')[0])
+        self.sender_title = os.getenv('SENDER_TITLE', '')
+        self.sender_company = os.getenv('SENDER_COMPANY', '')
         
         # Konfiguracja modelu LLM
         self.model_name = model_name
@@ -118,7 +124,7 @@ NAPISZ ODPOWIEDŹ:"""
             if "7b" in self.model_name.lower() or "8b" in self.model_name.lower():
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
-                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                    dtype=torch.float16 if self.device == "cuda" else torch.float32,
                     device_map="auto" if self.device == "cuda" else None,
                     low_cpu_mem_usage=True
                 )
@@ -128,6 +134,19 @@ NAPISZ ODPOWIEDŹ:"""
                     device_map="auto"
                 )
             
+            # Ustaw pad_token, jeśli brak – wiele modeli GPT używa EOS jako PAD
+            if getattr(self.tokenizer, 'pad_token', None) is None:
+                # Niektóre tokenizery używają "eos_token" jako pad
+                if getattr(self.tokenizer, 'eos_token', None) is not None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                else:
+                    # Fallback: ustaw explicite na id eos, jeśli dostępny
+                    if getattr(self.tokenizer, 'eos_token_id', None) is not None:
+                        self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            # Zsynchronizuj w modelu
+            if getattr(self.model, 'config', None) is not None and getattr(self.tokenizer, 'pad_token_id', None) is not None:
+                self.model.config.pad_token_id = self.tokenizer.pad_token_id
+
             if self.device == "cpu":
                 self.model = self.model.to(self.device)
             
@@ -209,33 +228,81 @@ NAPISZ ODPOWIEDŹ:"""
         
         # Tokenizacja
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-        
         if self.device == "cuda":
             inputs = inputs.to(self.device)
-        
-        # Generowanie odpowiedzi
-        with torch.no_grad():
-            outputs = self.model.generate(
-                inputs.input_ids,
-                max_new_tokens=self.generation_params['max_new_tokens'],
-                temperature=self.generation_params['temperature'],
-                top_p=self.generation_params['top_p'],
-                do_sample=self.generation_params['do_sample'],
-                repetition_penalty=self.generation_params['repetition_penalty'],
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-        
+
+        # Zapewnij attention_mask – część modeli nie potrafi go wywnioskować gdy PAD==EOS
+        attention_mask = inputs.get("attention_mask", torch.ones_like(inputs["input_ids"]))
+
+        # Ustal bezpieczny limit tokenów na GPU, by uniknąć OOM
+        max_new = int(self.generation_params.get('max_new_tokens', 500))
+        if self.device == "cuda" and max_new > 1024:
+            print("⚠️  Ograniczam max_new_tokens na GPU do 1024, aby uniknąć OOM")
+            max_new = 1024
+
+        # Generowanie odpowiedzi z obsługą OOM
+        try:
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    inputs.input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new,
+                    temperature=self.generation_params['temperature'],
+                    top_p=self.generation_params['top_p'],
+                    do_sample=self.generation_params['do_sample'],
+                    repetition_penalty=self.generation_params['repetition_penalty'],
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+        except torch.cuda.OutOfMemoryError:
+            print("❗ CUDA OOM podczas generowania. Fallback na CPU z mniejszym limitem tokenów...")
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+            except Exception:
+                pass
+            try:
+                # Fallback na CPU
+                self.model = self.model.to("cpu")
+                self.device = "cpu"
+                # Ponowna tokenizacja na CPU
+                inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+                attention_mask = inputs.get("attention_mask", torch.ones_like(inputs["input_ids"]))
+                max_new_cpu = min(max_new, 256)
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        inputs.input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=max_new_cpu,
+                        temperature=self.generation_params['temperature'],
+                        top_p=self.generation_params['top_p'],
+                        do_sample=self.generation_params['do_sample'],
+                        repetition_penalty=self.generation_params['repetition_penalty'],
+                        pad_token_id=self.tokenizer.eos_token_id
+                    )
+            except Exception:
+                # Ostateczny fallback – mock
+                return self._generate_mock_response(email_content)
+
         # Dekodowanie odpowiedzi
-        response = self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+        response = self.tokenizer.decode(
+            outputs[0][inputs.input_ids.shape[1]:],
+            skip_special_tokens=True
+        )
         
-        # Oczyść odpowiedź
-        response = response.strip()
-        
-        return response
+        return response.strip()
     
     def _generate_mock_response(self, email_content: Dict) -> str:
         """Generuje przykładową odpowiedź gdy model nie jest dostępny"""
         subject = email_content.get('subject', 'Brak tematu')
+        
+        # Buduj podpis z ENV
+        signature_lines = [f"Z poważaniem,", self.sender_name]
+        if self.sender_title:
+            signature_lines.append(self.sender_title)
+        if self.sender_company:
+            signature_lines.append(self.sender_company)
+        signature = "\n".join(signature_lines)
         
         response = f"""Dziękuję za Twoją wiadomość dotyczącą "{subject}".
 
@@ -244,8 +311,7 @@ Twoje zapytanie jest dla mnie ważne i postaram się odpowiedzieć jak najszybci
 
 Jeśli potrzebujesz dodatkowych informacji, proszę daj mi znać.
 
-Z poważaniem,
-{self.email_address.split('@')[0]}
+{signature}
 
 ---
 [Ta odpowiedź została wygenerowana automatycznie przez Email Responder Bot]"""
@@ -280,9 +346,10 @@ Z poważaniem,
             # Konwertuj na string
             email_string = msg.as_string()
             
-            # Zapisz jako draft w folderze Drafts
-            self.imap.append('Drafts', '', imaplib.Time2Internaldate(time.time()), 
-                           email_string.encode('utf-8'))
+            # Ustal docelowy folder Drafts i zapisz draft
+            drafts_mailbox = os.getenv('DRAFTS_FOLDER') or self._resolve_drafts_folder_name()
+            self.imap.append(drafts_mailbox, '', imaplib.Time2Internaldate(time.time()), 
+                            email_string.encode('utf-8'))
             
             return True
             
@@ -290,6 +357,38 @@ Z poważaniem,
             print(f"❌ Błąd podczas zapisywania draftu: {e}")
             return False
     
+    def _resolve_drafts_folder_name(self) -> str:
+        """Znajduje istniejący folder Drafts (wersje robocze) lub zwraca rozsądny fallback.
+        Preferuje INBOX<delim>Drafts, w innym wypadku pierwszy folder zawierający 'draft'."""
+        try:
+            result, data = self.imap.list()
+            if result == 'OK' and data:
+                names = []
+                for raw in data:
+                    _flags, delim, name = self._parse_list_line(raw)
+                    if not name:
+                        continue
+                    names.append((delim, name))
+
+                # Preferuj segment końcowy równo 'Drafts'
+                preferred = []
+                for delim, name in names:
+                    last = name.split(delim)[-1] if delim else name
+                    if last.lower() == 'drafts':
+                        preferred.append(name)
+                if preferred:
+                    inbox_pref = [n for n in preferred if n.upper().startswith('INBOX')]
+                    return inbox_pref[0] if inbox_pref else preferred[0]
+
+                # Inaczej: dowolna nazwa zawierająca 'draft'
+                for _delim, name in names:
+                    if 'draft' in name.lower():
+                        return name
+        except Exception:
+            pass
+        # Fallback typowy dla Dovecot
+        return 'INBOX.Drafts'
+
     def _parse_list_line(self, raw):
         """Parsuje linię odpowiedzi LIST do (flags, delimiter, name).
         Zwraca ([], '/', '') jeśli nie uda się sparsować.

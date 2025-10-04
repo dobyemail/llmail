@@ -27,7 +27,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     numpy \
     scikit-learn \
-    torch --index-url https://download.pytorch.org/whl/cpu \
     transformers \
     accelerate \
     sentencepiece \
@@ -38,6 +37,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pytest \
     pytest-cov \
     colorama
+
+# Instalacja PyTorch CPU (osobno z dodatkowym indeksem)
+RUN pip install --no-cache-dir \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Modele są pobierane dynamicznie w czasie uruchomienia w zależności od wyboru
 

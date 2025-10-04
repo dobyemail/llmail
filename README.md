@@ -33,9 +33,17 @@ Zestaw botów AI do automatycznego zarządzania pocztą email.
 
 ## 🔧 Instalacja
 
+### Z PyPI (rekomendowane)
+
 ```bash
-# Sklonuj lub pobierz pliki
-git clone <repository>
+pip install llmail
+```
+
+### Z repozytorium
+
+```bash
+# Sklonuj repozytorium
+git clone https://github.com/dobyemail/llmail.git
 cd llmail
 
 # Uruchom skrypt instalacyjny
@@ -55,7 +63,7 @@ source venv/bin/activate
 # Zainstaluj zależności
 pip install -r requirements.txt
 
-# Zainstaluj pakiet
+# Zainstaluj pakiet w trybie deweloperskim
 pip install -e .
 ```
 
@@ -136,31 +144,54 @@ Funkcje:
 
 ## 🎯 Użycie
 
-### Email Organizer
+### Instalacja z PyPI
+
+```bash
+pip install llmail
+```
+
+### Komendy CLI
+
+llmail oferuje zunifikowany interfejs CLI z subkomendami:
+
+#### `llmail generate` - Generowanie testowych emaili
+
+```bash
+# Podstawowe użycie (localhost SMTP)
+llmail generate --num-emails 50 --spam-ratio 0.2
+
+# Z własnym serwerem SMTP
+llmail generate --smtp-host mailhog --smtp-port 1025 --num-emails 100
+
+# Do konkretnego odbiorcy
+llmail generate --to test@localhost --num-emails 20
+```
+
+#### `llmail clean` - Organizacja i kategoryzacja emaili
 
 ```bash
 # Podstawowe użycie
-python email_organizer.py --email twoj@email.com --password haslo
+llmail clean --email twoj@email.com --password haslo
 
 # Z własnym serwerem IMAP
-python email_organizer.py --email twoj@email.com --password haslo --server imap.example.com
+llmail clean --email twoj@email.com --password haslo --server imap.example.com
 
 # Tryb testowy (bez przenoszenia)
-python email_organizer.py --email twoj@email.com --password haslo --dry-run
+llmail clean --dry-run
 
 # Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
-python email_organizer.py --limit 200 --since-days 14
+llmail clean --limit 200 --since-days 14
 # lub do konkretnej daty (YYYY-MM-DD)
-python email_organizer.py --since-date 2025-09-20 --limit 50
+llmail clean --since-date 2025-09-20 --limit 50
 
 # Czułość grupowania (progi konfigurowalne)
-python email_organizer.py \
+llmail clean \
   --similarity-threshold 0.20 \
   --min-cluster-size 2 \
   --min-cluster-fraction 0.05
 
 # Przetwarzanie konkretnego folderu (i opcjonalnie podfolderów)
-python email_organizer.py --folder INBOX --include-subfolders --limit 50
+llmail clean --folder INBOX --include-subfolders --limit 50
 
 # Cross-folder spam (porównanie z SPAM/Kosz)
 # Jeśli wiadomość z INBOX jest podobna do maili w SPAM/Kosz (cosine >= CROSS_SPAM_SIMILARITY),
@@ -168,26 +199,62 @@ python email_organizer.py --folder INBOX --include-subfolders --limit 50
 # (próbkujemy do CROSS_SPAM_SAMPLE_LIMIT wiadomości referencyjnych)
 export CROSS_SPAM_SIMILARITY=0.6
 export CROSS_SPAM_SAMPLE_LIMIT=200
-python email_organizer.py --limit 50 --since-days 7
+llmail clean --limit 50 --since-days 7
 ```
 
-### Email Responder
+#### `llmail write` - Generowanie odpowiedzi z AI
 
 ```bash
 # Podstawowe użycie
-python email_responder.py --email twoj@email.com --password haslo
+llmail write --email twoj@email.com --password haslo
 
 # Domyślny model: Qwen/Qwen2.5-7B-Instruct
-python email_responder.py --email twoj@email.com --password haslo --model mistralai/Mistral-7B-Instruct-v0.2
+llmail write --model mistralai/Mistral-7B-Instruct-v0.2
 
 # Przetwarzanie określonego folderu
-python email_responder.py --email twoj@email.com --password haslo --folder "Important" --limit 5
+llmail write --folder "Important" --limit 5
 
 # Ograniczenie liczby i zakresu czasu (domyślnie: 100 ostatnich, z 7 dni)
-python email_responder.py --limit 100 --since-days 7
-python email_responder.py --limit 50 --since-date 2025-09-20
+llmail write --limit 100 --since-days 7
+llmail write --limit 50 --since-date 2025-09-20
 
-Alternatywnie (Docker + Makefile):
+# Parametry generowania
+llmail write --temperature 0.7 --max-tokens 512
+
+# Tryb offline (mock responses, bez LLM)
+llmail write --offline --limit 10
+```
+
+#### `llmail test` - Uruchom testy
+
+```bash
+# Uruchom wszystkie testy
+llmail test
+
+# Tryb verbose
+llmail test --verbose
+
+# Szybkie testy (bez integracyjnych)
+llmail test --quick
+```
+
+### Backwards Compatibility
+
+Stare komendy nadal działają dla kompatybilności wstecznej:
+
+```bash
+# Zamiast: llmail clean
+email-organizer --email twoj@email.com --password haslo
+
+# Zamiast: llmail write
+email-responder --email twoj@email.com --password haslo
+
+# Lub bezpośrednio:
+python email_organizer.py --email twoj@email.com --password haslo
+python email_responder.py --email twoj@email.com --password haslo
+```
+
+### Docker + Makefile
 
 ```bash
 # Domyślnie użyje Qwen/Qwen2.5-7B-Instruct
@@ -245,12 +312,20 @@ CONTENT_MIN_CHARS=40
 CONTENT_MIN_TOKENS=6
 ```
 
+#### Email Responder - podpis w odpowiedziach
+```
+DRAFTS_FOLDER=INBOX.Drafts     # Folder dla wersji roboczych (auto-detect jeśli brak)
+SENDER_NAME=Jan Kowalski        # Imię i nazwisko w podpisie
+SENDER_TITLE=Asystent AI        # Tytuł/stanowisko (opcjonalnie)
+SENDER_COMPANY=Twoja Firma      # Nazwa firmy (opcjonalnie)
+```
+
 #### Logowanie i tryb testowy
 ```
 LOG_LEVEL=INFO   # DEBUG|INFO|WARNING|ERROR
 DRY_RUN=false
 ```
-```
+
 W Docker Compose możesz je nadpisać na poziomie usług lub w `.env`.
 
 ## 🤖 Rekomendowane modele LLM (do 8B)
@@ -318,10 +393,14 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `--all-emails`: Przetwarzaj wszystkie, nie tylko nieprzeczytane
 - `--dry-run`: Nie zapisuj draftów
 - `--temperature`: Kreatywność odpowiedzi (0.0-1.0)
-- `--max-tokens`: Maksymalna długość odpowiedzi
+- `--max-tokens`: Maksymalna długość odpowiedzi (auto-clamp do 1024 na GPU)
 - `--offline`: Tryb offline (mock responses)
 - `--since-days`: Okno czasowe w dniach (domyślnie: 7)
 - `--since-date`: Najstarsza data w formacie `YYYY-MM-DD`
+- `DRAFTS_FOLDER` (ENV): Folder dla draftów, domyślnie `INBOX.Drafts` (auto-detect)
+- `SENDER_NAME` (ENV): Imię i nazwisko w podpisie, domyślnie login email
+- `SENDER_TITLE` (ENV): Tytuł/stanowisko w podpisie (opcjonalny)
+- `SENDER_COMPANY` (ENV): Nazwa firmy w podpisie (opcjonalny)
 
 ## 🧪 Funkcje testowania
 
@@ -396,5 +475,83 @@ Typowe czasy wykonania testów:
 
 Nigdy nie używaj w produkcji!
 
+## 👨‍💻 Dla Deweloperów
+
+### Lokalna instalacja (dev mode)
+
+```bash
+git clone https://github.com/dobyemail/llmail.git
+cd llmail
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### Uruchom testy
+
+```bash
+# Przez CLI
+llmail test --verbose
+
+# Lub bezpośrednio
+pytest -v
+
+# Z pokryciem kodu
+pytest --cov=. --cov-report=html
+```
+
+### Test instalacji lokalnej
+
+```bash
+./test_install.sh
+```
+
+### Publikacja na PyPI
+
+```bash
+# 1. Zaktualizuj wersję w llmail_cli.py i setup.py
+# 2. Zaktualizuj CHANGELOG.md
+# 3. Zbuduj paczkę
+./publish.sh
+
+# 4. (Opcjonalnie) Test na TestPyPI
+python3 -m twine upload --repository testpypi dist/*
+
+# 5. Publikuj na PyPI
+python3 -m twine upload dist/*
+```
+
+Zobacz [PUBLISHING.md](PUBLISHING.md) dla szczegółowych instrukcji.
+
+### Struktura projektu
+
+```
+llmail/
+├── llmail_cli.py          # Główny CLI wrapper (llmail clean/write/test)
+├── email_organizer.py     # Bot organizujący (llmail clean)
+├── email_responder.py     # Bot odpowiadający (llmail write)
+├── email_generator.py     # Generator testowych emaili
+├── test_suite.py          # Testy jednostkowe i integracyjne
+├── setup.py               # Konfiguracja setuptools
+├── pyproject.toml         # Nowoczesna konfiguracja buildu
+├── MANIFEST.in            # Pliki do pakowania
+├── docker_compose.yml     # Środowisko testowe Docker
+└── dovecot/               # Konfiguracja Dovecot dla testów
+```
+
+### Konwencje kodu
+
+- Python 3.8+ (kompatybilność wsteczna)
+- Docstringi dla publicznych funkcji
+- Type hints dla nowych kodu
+- Black dla formatowania (80-100 znaków)
+- Testy dla nowych funkcji
+
+### Zgłaszanie błędów
+
+https://github.com/dobyemail/llmail/issues
+
 ## 📝 Licencja
+
+Apache License 2.0
 

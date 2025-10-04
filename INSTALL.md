@@ -1,0 +1,172 @@
+# Instalacja llmail
+
+## Szybka instalacja (PyPI)
+
+```bash
+pip install llmail
+```
+
+## Weryfikacja instalacji
+
+```bash
+llmail --help
+```
+
+Powinieneś zobaczyć:
+```
+usage: llmail [-h] {clean,write,test} ...
+
+AI-powered email management toolkit
+
+positional arguments:
+  {clean,write,test}  Dostępne komendy
+    clean             Organizuj i kategoryzuj emaile
+    write             Generuj odpowiedzi AI na emaile
+    test              Uruchom testy jednostkowe
+```
+
+## Pierwsze uruchomienie
+
+### 1. Podstawowa konfiguracja
+
+Utwórz plik `.env`:
+
+```bash
+EMAIL_ADDRESS=twoj@email.com
+EMAIL_PASSWORD=haslo_aplikacji
+IMAP_SERVER=imap.gmail.com
+```
+
+### 2. Test połączenia
+
+```bash
+# Tryb dry-run (bez zmian)
+llmail clean --dry-run --limit 10
+```
+
+### 3. Organizacja emaili
+
+```bash
+# Kategoryzuj ostatnie 100 emaili z ostatnich 7 dni
+llmail clean --limit 100 --since-days 7
+```
+
+### 4. Generowanie odpowiedzi (wymaga GPU lub dużo RAM)
+
+```bash
+# Tryb offline (mock responses)
+llmail write --offline --limit 5
+
+# Z prawdziwym LLM (wymaga GPU)
+llmail write --limit 5 --max-tokens 512
+```
+
+## Instalacja dla deweloperów
+
+```bash
+git clone https://github.com/dobyemail/llmail.git
+cd llmail
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"
+```
+
+## Wymagania systemowe
+
+### Minimalne (llmail clean)
+- Python 3.8+
+- 1 GB RAM
+- Połączenie IMAP
+
+### Rekomendowane (llmail write)
+- Python 3.10+
+- 8 GB RAM (CPU) lub 6 GB VRAM (GPU)
+- Połączenie IMAP/SMTP
+- CUDA (opcjonalnie, dla GPU)
+
+## Konfiguracja dla popularnych dostawców
+
+### Gmail
+
+1. Włącz weryfikację dwuetapową
+2. Wygeneruj hasło aplikacji: https://myaccount.google.com/apppasswords
+3. Użyj w `.env`:
+   ```
+   EMAIL_ADDRESS=twoj@gmail.com
+   EMAIL_PASSWORD=<haslo_aplikacji>
+   IMAP_SERVER=imap.gmail.com
+   ```
+
+### Outlook/Hotmail
+
+```
+EMAIL_ADDRESS=twoj@outlook.com
+EMAIL_PASSWORD=<haslo_aplikacji>
+IMAP_SERVER=outlook.office365.com
+```
+
+### Yahoo
+
+```
+EMAIL_ADDRESS=twoj@yahoo.com
+EMAIL_PASSWORD=<haslo_aplikacji>
+IMAP_SERVER=imap.mail.yahoo.com
+```
+
+### Własny serwer
+
+```
+EMAIL_ADDRESS=twoj@example.com
+EMAIL_PASSWORD=<haslo>
+IMAP_SERVER=imap.example.com
+SMTP_SERVER=smtp.example.com
+DRAFTS_FOLDER=INBOX.Drafts
+
+# Personalizacja podpisu w odpowiedziach
+SENDER_NAME=Jan Kowalski
+SENDER_TITLE=Senior Developer
+SENDER_COMPANY=Twoja Firma Sp. z o.o.
+```
+
+## Rozwiązywanie problemów
+
+### Błąd importu
+
+```bash
+pip install --upgrade pip
+pip uninstall llmail
+pip install llmail
+```
+
+### Brak połączenia IMAP
+
+- Sprawdź czy IMAP jest włączony w ustawieniach konta
+- Dla Gmail użyj hasła aplikacji (nie zwykłego hasła)
+- Sprawdź firewall/antywirus
+
+### Brak pamięci (OOM) podczas llmail write
+
+```bash
+# Ogranicz max_tokens
+llmail write --max-tokens 256
+
+# Lub użyj trybu offline
+llmail write --offline
+```
+
+## Aktualizacja
+
+```bash
+pip install --upgrade llmail
+```
+
+## Deinstalacja
+
+```bash
+pip uninstall llmail
+```
+
+## Pomoc
+
+- GitHub Issues: https://github.com/dobyemail/llmail/issues
+- Dokumentacja: https://github.com/dobyemail/llmail#readme
