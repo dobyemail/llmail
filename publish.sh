@@ -23,7 +23,7 @@ python3 -m pip install --upgrade pip build twine setuptools wheel
 
 # Automatyczna iteracja wersji
 echo "🔢 Iteracja wersji..."
-CURRENT_VERSION=$(grep -oP "__version__ = \"\K[^\"]+\" llmail_cli.py | sed 's/"//g')
+CURRENT_VERSION=$(grep "__version__" llmail_cli.py | cut -d'"' -f2)
 echo "Obecna wersja: $CURRENT_VERSION"
 
 # Parse wersji (major.minor.patch)

@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="llmail",
-    version="1.1.0",
+    version="1.1.1",
     author="Tom Sapletta",
     author_email="",
     description="AI-powered email management: auto-categorize, detect spam, and generate responses with LLM",
