@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
   - Pushes to origin main
   - Uploads to PyPI via twine
 - **Improved Test Integration**: Auto-installs pytest before running tests
+- **Short Messages Handling**: Email organizer now moves short messages to separate `ShortMessages` folder instead of skipping them
+  - Displays sender, subject, and body preview for each short message
+  - Configurable via `CONTENT_MIN_CHARS` and `CONTENT_MIN_TOKENS` env vars
 
 ### Fixed
 - **Virtual Environment Support**: `publish.sh` now activates venv if present
@@ -24,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - **IMAP Data Parsing**: Added validation for IMAP FETCH response format to prevent `AttributeError: 'int' object has no attribute 'decode'`
 - **CUDA OOM Handling**: Simplified OOM recovery - now falls back to mock response instead of trying to move accelerate-dispatched models between devices
 - **Email Fetching**: Added try-except blocks and type checking for robust email retrieval
+- **Install Script**: Fixed venv corruption issues by cleaning old venv before creating new one
 
 ## [1.1.1] - 2025-10-04
 
