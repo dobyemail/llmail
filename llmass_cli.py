@@ -8,7 +8,7 @@ Komendy:
   llmass test     - Uruchom testy
 """
 
-__version__ = "1.1.13"
+__version__ = "1.1.14"
 
 import sys
 import argparse

@@ -1,5 +1,5 @@
 
-.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog status report generate-emails organize respond llmass-generate llmass-clean llmass-write llmass-test publish test-install
+.PHONY: help build build-light up down test quick-test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog status report generate-emails organize respond llmass-generate llmass-clean llmass-write llmass-repair llmass-test publish test-install
 
 # Docker Compose configuration
 COMPOSE_FILE := docker_compose.yml
@@ -30,16 +30,21 @@ help: ## Wyświetl pomoc
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(BLUE)%-15s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Przykłady użycia:$(NC)"
-	@echo "  make build             # Zbuduj obrazy Docker"
-	@echo "  make test              # Uruchom pełne testy"
+	@echo "  make build-light       # Zbuduj lekkie obrazy (5 min)"
+	@echo "  make quick-test        # Szybkie testy (5 min)"
+	@echo "  make build             # Zbuduj wszystkie obrazy (30 min)"
+	@echo "  make test              # Uruchom pełne testy (30 min)"
 	@echo "  make install           # Zainstaluj lokalnie (venv + pip install)"
-	@echo "  make llmass-generate   # Uruchom llmass generate (lokalnie)"
 	@echo "  make llmass-clean      # Uruchom llmass clean (lokalnie)"
-	@echo "  make llmass-write      # Uruchom llmass write (lokalnie)"
+	@echo "  make llmass-repair     # Uruchom llmass repair (lokalnie)"
 	@echo "  make publish           # Zbuduj paczkę dla PyPI"
-	@echo "  make logs              # Pokaż logi"
 
-build: ## Zbuduj wszystkie obrazy Docker
+build-light: ## Zbuduj tylko lekkie obrazy (bez LLM, ~5 min)
+	@echo "$(YELLOW)⚡ Building lightweight Docker images...$(NC)"
+	$(DC) -f $(COMPOSE_FILE) build --parallel mailhog dovecot email-generator test-runner
+	@echo "$(GREEN)✅ Lightweight images built!$(NC)"
+
+build: ## Zbuduj wszystkie obrazy Docker (~30 min)
 	@echo "$(YELLOW)🔨 Building Docker images...$(NC)"
 	$(DC) -f $(COMPOSE_FILE) build --parallel
 
@@ -58,16 +63,25 @@ install: ## Zainstaluj lokalnie (venv + pip install)
 	chmod +x install.sh
 	./install.sh
 
-test: build ## Uruchom pełny test suite
-	@echo "$(YELLOW)🧪 Running test suite...$(NC)"
+quick-test: build-light ## Szybkie testy (bez LLM, ~5 min)
+	@echo "$(YELLOW)⚡ Running quick tests...$(NC)"
 	$(DC) -f $(COMPOSE_FILE) up -d mailhog dovecot
-	@sleep 5
+	@echo "$(BLUE)⏳ Waiting for services to be ready...$(NC)"
+	@sleep 10
+	$(DC) -f $(COMPOSE_FILE) run --rm test-runner pytest -v -k "not llm and not responder" --tb=short
+	@echo "$(GREEN)✅ Quick tests completed!$(NC)"
+
+test: build ## Uruchom pełny test suite (~30 min)
+	@echo "$(YELLOW)🧪 Running full test suite...$(NC)"
+	$(DC) -f $(COMPOSE_FILE) up -d mailhog dovecot
+	@echo "$(BLUE)⏳ Waiting for services to be ready...$(NC)"
+	@sleep 10
 	$(DC) -f $(COMPOSE_FILE) run --rm email-generator
-	@sleep 3
+	@sleep 5
 	$(DC) -f $(COMPOSE_FILE) run --rm email-organizer
-	@sleep 2
+	@sleep 3
 	$(DC) -f $(COMPOSE_FILE) run --rm email-responder
-	@sleep 2
+	@sleep 3
 	$(DC) -f $(COMPOSE_FILE) run --rm test-runner
 	@echo "$(GREEN)✅ Tests completed!$(NC)"
 
@@ -144,6 +158,15 @@ llmass-write: ## Uruchom llmass write (lokalnie)
 	@echo "$(GREEN)✍️  Running llmass write...$(NC)"
 	@if command -v llmass >/dev/null 2>&1; then \
 		llmass write --offline --limit 5; \
+	else \
+		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		exit 1; \
+	fi
+
+llmass-repair: ## Uruchom llmass repair (lokalnie)
+	@echo "$(GREEN)🔧 Running llmass repair...$(NC)"
+	@if command -v llmass >/dev/null 2>&1; then \
+		llmass repair --dry-run; \
 	else \
 		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
 		exit 1; \

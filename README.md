@@ -15,6 +15,7 @@ Inteligentny system automatyzacji poczty email z użyciem AI.
 ### Funkcje
 - **[Email Organizer](docs/features/email-organizer.md)** - Automatyczna kategoryzacja
 - **[Email Responder](docs/features/email-responder.md)** - Generowanie odpowiedzi AI
+- **[IMAP Repair](docs/features/imap-repair.md)** - Naprawa corruption skrzynki
 - **[Aktywne konwersacje](docs/features/active-conversations.md)** - Wykrywanie wątków
 
 ### Architektura i Docker
