@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2025-10-04
+
+### Added
+- Modular package skeleton in `llmass/`:
+  - `llmass/organizer/app.py` (OrganizerApp, OrganizerConfig)
+  - `llmass/organizer/repair.py` (delegated repair implementation)
+  - `llmass/core/router.py` (Camel-like router skeleton)
+  - `llmass/logging_utils.py` (verbose-aware logging helpers and short())
+- Refactor plan added to `TODO.md` with detailed checklist (≤500 lines per file target).
+
+### Changed
+- `llmass_cli.py` `clean` now uses modular organizer (`llmass.organizer.app.run_clean_from_args`).
+- Default logging is quiet (errors only); full diagnostics with `--verbose`.
+- `email_organizer.py`: info/DRY-RUN/success prints gated by `--verbose`; non-verbose errors are truncated to 20 chars.
+
+### Refactor
+- `EmailOrganizer.repair_mailbox()` delegates to `llmass.organizer.repair` to reduce duplication.
+- Prepared structure for future MCP client/server and Camel-like routing.
+
 ## [1.1.5] - 2025-10-04
 
 ### Changed
