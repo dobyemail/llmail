@@ -43,9 +43,7 @@ Inteligentny system automatyzacji poczty email z użyciem AI.
 ### Email Responder Bot  
 - ✅ Automatyczne generowanie odpowiedzi z użyciem LLM
 - ✅ Zapisywanie odpowiedzi jako drafty (nie wysyła automatycznie)
-- ✅ Obsługa modeli do 8B parametrów
-- ✅ Personalizowane odpowiedzi
-- ✅ Filtrowanie automatycznych odpowiedzi
+- ✅ Filtrowanie i Personalizowane odpowiedzi
 
 ## 📋 Wymagania
 
