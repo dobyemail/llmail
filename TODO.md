@@ -30,3 +30,9 @@ Status na: 2025-10-04
 ## Notatki
 - W testach środowisko (Dovecot) może tworzyć folder SPAM jako `INBOX.SPAM` w zależności od delimitera (np. `.`). Testy muszą to uwzględniać.
 - Progi klasteryzacji są teraz ustawialne przez CLI/ENV i mają domyślne wartości bezpieczne dla mniejszych partii emaili.
+
+
+zrob refaktoryzacje, zmniejsz ilość linii kodu w każdym pliku z kodem do 500linii lub mniej 
+stworz modularną i komplementarną architekturęz użyciem abstrakcji opartej na frameworku i wzorcach, które pasują do tego projektu
+aby możliwe było wdrożenie client, server MCP oraz komunikacji jak z apache camel, który możesz też równolegle użyć jako 
+drugi projek t w oparciu o groovy, który natywnie wspiera framework apache camel

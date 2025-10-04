@@ -20,8 +20,16 @@ from colorama import init, Fore, Back, Style
 # Import botów
 sys.path.append('/app')
 from email_organizer import EmailOrganizer
-from email_responder import EmailResponder
 from email_generator import TestEmailGenerator
+
+# Conditional import dla EmailResponder (może nie mieć LLM dependencies)
+try:
+    from email_responder import EmailResponder
+    EMAIL_RESPONDER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  EmailResponder nie jest dostępny: {e}")
+    EmailResponder = None
+    EMAIL_RESPONDER_AVAILABLE = False
 
 init(autoreset=True)
 
@@ -60,6 +68,9 @@ class TestEmailBots:
     @pytest.fixture(scope="class")
     def responder_bot(self, test_config):
         """Fixture dla bota odpowiadającego"""
+        if not EMAIL_RESPONDER_AVAILABLE:
+            pytest.skip("EmailResponder not available (missing LLM dependencies)")
+            
         return EmailResponder(
             email_address=test_config['email'],
             password=test_config['password'],

@@ -59,6 +59,7 @@ def main():
     clean_parser.add_argument('--similarity-threshold', type=float, help='Próg podobieństwa (0-1)')
     clean_parser.add_argument('--min-cluster-size', type=int, help='Minimalny rozmiar klastra')
     clean_parser.add_argument('--min-cluster-fraction', type=float, help='Minimalny udział klastra (0-1)')
+    clean_parser.add_argument('--verbose', '-v', action='store_true', help='Tryb verbose - pokaż wszystkie szczegóły')
     
     # === llmass write (email responder) ===
     write_parser = subparsers.add_parser(
@@ -155,6 +156,8 @@ def run_clean(args):
         sys.argv.extend(['--min-cluster-size', str(args.min_cluster_size)])
     if args.min_cluster_fraction:
         sys.argv.extend(['--min-cluster-fraction', str(args.min_cluster_fraction)])
+    if hasattr(args, 'verbose') and args.verbose:
+        sys.argv.append('--verbose')
     
     organizer_main()
 

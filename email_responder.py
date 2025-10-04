@@ -17,10 +17,20 @@ from typing import List, Dict, Optional
 import json
 import time
 import gc
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
-import torch
 from dotenv import load_dotenv
+
+# Conditional imports dla LLM dependencies
+try:
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    import torch
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    # Mock classes dla testów bez LLM
+    AutoTokenizer = None
+    AutoModelForCausalLM = None
+    torch = None
+    TRANSFORMERS_AVAILABLE = False
 
 class EmailResponder:
     def __init__(self, email_address: str, password: str, 
@@ -117,6 +127,10 @@ NAPISZ ODPOWIEDŹ:"""
     
     def load_model(self):
         """Ładuje model LLM"""
+        if not TRANSFORMERS_AVAILABLE:
+            print("⚠️  Transformers nie jest dostępne - używam trybu mock")
+            return False
+            
         print(f"🤖 Ładowanie modelu {self.model_name}...")
         print(f"   Używam urządzenia: {self.device}")
         
@@ -311,8 +325,8 @@ NAPISZ ODPOWIEDŹ:"""
     
     def generate_response_with_llm(self, email_content: Dict) -> str:
         """Generuje odpowiedź używając modelu LLM"""
-        if not self.model:
-            # Tryb mock gdy model nie jest załadowany
+        if not TRANSFORMERS_AVAILABLE or not self.model:
+            # Tryb mock gdy model nie jest załadowany lub transformers niedostępne
             return self._generate_mock_response(email_content)
         
         # Pobierz historię korespondencji z tym nadawcą
