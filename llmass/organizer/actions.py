@@ -16,8 +16,9 @@ def move_email(ctx, email_id: Union[str, bytes], target_folder: str) -> bool:
         mailbox = ctx._encode_mailbox(target_folder) if hasattr(ctx, '_encode_mailbox') else target_folder
 
         # Check MOVE capability
+        client = getattr(ctx, 'client', None)
         try:
-            cap_typ, caps = ctx.imap.capability()
+            cap_typ, caps = client.safe_capability() if client else ctx.imap.capability()
             caps_joined = b" ".join(caps) if caps else b""
         except Exception:
             caps_joined = b""
@@ -25,16 +26,19 @@ def move_email(ctx, email_id: Union[str, bytes], target_folder: str) -> bool:
         if b"MOVE" in caps_joined:
             if getattr(ctx, 'verbose', False):
                 print(f"➡️  Używam IMAP MOVE do: {target_folder}")
-            typ, resp = ctx.imap.uid('MOVE', uid_str, mailbox)
+            typ, resp = client.safe_uid('MOVE', uid_str, mailbox) if client else ctx.imap.uid('MOVE', uid_str, mailbox)
             if typ == 'OK':
                 return True
             else:
                 print(f"Błąd MOVE: {typ} {resp}, fallback na COPY/STORE")
 
         # Fallback COPY + STORE \Deleted
-        typ, resp = ctx.imap.uid('COPY', uid_str, mailbox)
+        typ, resp = client.safe_uid('COPY', uid_str, mailbox) if client else ctx.imap.uid('COPY', uid_str, mailbox)
         if typ == 'OK':
-            ctx.imap.uid('STORE', uid_str, '+FLAGS.SILENT', '(\\Deleted)')
+            if client:
+                client.safe_uid('STORE', uid_str, '+FLAGS.SILENT', '(\\Deleted)')
+            else:
+                ctx.imap.uid('STORE', uid_str, '+FLAGS.SILENT', '(\\Deleted)')
             return True
         print(f"Błąd COPY: {typ} {resp}")
     except Exception as e:

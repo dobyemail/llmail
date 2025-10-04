@@ -4,7 +4,6 @@ Email Organizer Bot - Automatyczna segregacja emaili
 Użycie: python email_organizer.py --email user@example.com --password pass123
 """
 
-import imaplib
 import email
 from email.header import decode_header
 import logging
@@ -36,6 +35,8 @@ from llmass.organizer.categorize import (
     generate_category_name as _generate_category_name,
 )
 from llmass.organizer.text_utils import make_vectorizer as _make_vectorizer_util
+from llmass.imap.session import ImapSession
+from llmass.imap.client import ImapClient
 warnings.filterwarnings('ignore')
 
 class EmailOrganizer:
@@ -53,6 +54,7 @@ class EmailOrganizer:
             self.imap_server = self._detect_imap_server(email_address)
         
         self.imap = None
+        self.client = None
         self._delim_cache = None
         # Konfiguracja wektoryzatora
         self.tfidf_max_features = int(os.getenv('TFIDF_MAX_FEATURES', '100'))
@@ -133,8 +135,12 @@ class EmailOrganizer:
     def connect(self):
         """Połączenie z serwerem IMAP"""
         try:
-            self.imap = imaplib.IMAP4_SSL(self.imap_server)
+            # Użyj cienkiego wrappera ImapSession zamiast bezpośrednio imaplib
+            self.imap = ImapSession(self.imap_server, ssl=True)
+            self.imap.connect()
             self.imap.login(self.email_address, self.password)
+            # Wrap session with retry/backoff client
+            self.client = ImapClient(self.imap, retries=2, backoff=0.5, verbose=self.verbose)
             if self.verbose:
                 print(f"✅ Połączono z {self.imap_server}")
             # Zcache'uj delimiter
@@ -163,7 +169,7 @@ class EmailOrganizer:
         if self._delim_cache:
             return self._delim_cache
         try:
-            result, data = self.imap.list()
+            result, data = self.client.safe_list() if self.client else self.imap.list()
             if result == 'OK' and data and len(data) > 0:
                 sample = data[0].decode()
                 parts = sample.split('"')
@@ -281,16 +287,16 @@ class EmailOrganizer:
         """Pobiera do 'limit' najnowszych wiadomości z folderu i zwraca listę tekstów subject+body."""
         texts: List[str] = []
         try:
-            typ, _ = self.imap.select(folder)
+            typ, _ = self.client.safe_select(folder)
             if typ != 'OK':
                 return texts
-            res, data = self.imap.uid('SEARCH', None, 'ALL')
+            res, data = self.client.safe_uid('SEARCH', None, 'ALL')
             if res != 'OK' or not data or not data[0]:
                 return texts
             uids = data[0].split()
             take = uids[-limit:] if limit and len(uids) > limit else uids
             for uid in take:
-                r, d = self.imap.uid('FETCH', uid, '(RFC822)')
+                r, d = self.client.safe_uid('FETCH', uid, '(RFC822)')
                 if r != 'OK' or not d or not d[0]:
                     continue
                 raw = d[0][1]
@@ -301,7 +307,7 @@ class EmailOrganizer:
             pass
         finally:
             try:
-                self.imap.select('INBOX')
+                self.client.safe_select('INBOX')
             except Exception:
                 pass
         return texts
@@ -310,16 +316,16 @@ class EmailOrganizer:
         """Pobiera do 'limit' najnowszych wiadomości: subject, body, from."""
         msgs: List[Dict] = []
         try:
-            typ, _ = self.imap.select(folder)
+            typ, _ = self.client.safe_select(folder)
             if typ != 'OK':
                 return msgs
-            res, data = self.imap.uid('SEARCH', None, 'ALL')
+            res, data = self.client.safe_uid('SEARCH', None, 'ALL')
             if res != 'OK' or not data or not data[0]:
                 return msgs
             uids = data[0].split()
             take = uids[-limit:] if limit and len(uids) > limit else uids
             for uid in take:
-                r, d = self.imap.uid('FETCH', uid, '(RFC822)')
+                r, d = self.client.safe_uid('FETCH', uid, '(RFC822)')
                 if r != 'OK' or not d or not d[0]:
                     continue
                 raw = d[0][1]
@@ -330,7 +336,7 @@ class EmailOrganizer:
             pass
         finally:
             try:
-                self.imap.select('INBOX')
+                self.client.safe_select('INBOX')
             except Exception:
                 pass
         return msgs
@@ -440,80 +446,11 @@ class EmailOrganizer:
             return False
     
     def _get_sent_drafts_message_ids(self) -> set:
-        """
-        Pobiera Message-IDs z folderów Sent i Drafts (z limitami czasowymi i ilościowymi).
-        Używane do wykrywania aktywnych konwersacji.
-        
-        Limity:
-            - CONVERSATION_HISTORY_DAYS (domyślnie 360 dni)
-            - CONVERSATION_HISTORY_LIMIT (domyślnie 300 wiadomości na folder)
-        
-        Returns:
-            Set Message-IDs z Sent i Drafts
-        """
-        message_ids = set()
-        
-        # Znajdź foldery Sent i Drafts
-        folders_to_check = []
-        all_folders = self.get_folders()
-        for folder_name in all_folders:
-            folder_lower = folder_name.lower()
-            if any(keyword in folder_lower for keyword in ['sent', 'wysłane', 'wyslane', 'drafts', 'draft', 'robocze']):
-                folders_to_check.append(folder_name)
-        
-        if not folders_to_check:
-            return message_ids
-        
-        # Oblicz datę graniczną
-        from datetime import datetime, timedelta
-        cutoff_date = datetime.now() - timedelta(days=self.conversation_history_days)
-        imap_since = cutoff_date.strftime('%d-%b-%Y')
-        
-        # Przeszukaj każdy folder
-        for folder in folders_to_check[:4]:  # Max 4 foldery (Sent, Drafts i ewentualne podkatalogi)
-            try:
-                self.imap.select(folder, readonly=True)
-                # Szukaj tylko z ostatnich N dni
-                result, data = self.imap.uid('SEARCH', None, 'SINCE', imap_since)
-                
-                if result != 'OK' or not data or not data[0]:
-                    continue
-                
-                uids = data[0].split()
-                
-                # Ogranicz do ostatnich N wiadomości
-                if len(uids) > self.conversation_history_limit:
-                    uids = uids[-self.conversation_history_limit:]
-                
-                # Pobierz Message-ID z każdego emaila
-                for uid in uids:
-                    try:
-                        # Pobierz tylko nagłówki (szybsze niż cały email)
-                        r, d = self.imap.uid('FETCH', uid, '(BODY[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)])')
-                        if r == 'OK' and d and d[0]:
-                            header_data = d[0][1]
-                            if isinstance(header_data, bytes):
-                                msg = email.message_from_bytes(header_data)
-                                msg_id = msg.get('Message-ID', '').strip()
-                                if msg_id:
-                                    message_ids.add(msg_id)
-                                # Dodaj też In-Reply-To i References (nasze odpowiedzi na inne emaile)
-                                in_reply = msg.get('In-Reply-To', '').strip()
-                                if in_reply:
-                                    message_ids.add(in_reply)
-                                refs = msg.get('References', '').strip()
-                                if refs:
-                                    # References może zawierać wiele ID oddzielonych spacjami
-                                    for ref_id in refs.split():
-                                        if ref_id.strip():
-                                            message_ids.add(ref_id.strip())
-                    except Exception:
-                        continue
-                        
-            except Exception as e:
-                continue
-        
-        return message_ids
+        """Deleguje do llmass.organizer.filters.get_sent_drafts_message_ids"""
+        try:
+            return _filter_get_sent_drafts_ids(self)
+        except Exception:
+            return set()
     
     def _is_active_conversation(self, email_content: Dict, sent_drafts_ids: set) -> bool:
         """
@@ -589,14 +526,14 @@ class EmailOrganizer:
         self.logger.debug(f"Selecting folder: {selected_folder} (include_subfolders={include_subfolders})")
         
         # SELECT w trybie read-write (aby EXPUNGE działało)
-        result, data = self.imap.select(selected_folder, readonly=False)
+        result, data = self.client.safe_select(selected_folder, readonly=False)
         if result != 'OK':
             print(f"❌ Nie można otworzyć folderu {selected_folder}")
             return
         
         # Wyczyść usunięte emaile przed rozpoczęciem (EXPUNGE)
         try:
-            result = self.imap.expunge()
+            result = self.client.safe_expunge()
             if result[0] == 'OK' and result[1] and result[1][0]:
                 expunged_count = len(result[1])
                 if self.verbose:
@@ -625,7 +562,7 @@ class EmailOrganizer:
             search_criteria = ['SINCE', imap_since]
         
         # Wyszukaj emaile
-        result, data = self.imap.uid('SEARCH', None, *search_criteria)
+        result, data = self.client.safe_uid('SEARCH', None, *search_criteria)
         if result != 'OK' or not data or not data[0]:
             if self.verbose:
                 print("📭 Brak emaili do przetworzenia w wybranym folderze")

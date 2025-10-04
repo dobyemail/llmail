@@ -30,20 +30,21 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
     try:
         # Krok 1: Sprawdź czy folder istnieje
         print(f"📂 Sprawdzam folder: {folder}")
-        result, data = bot.imap.select(folder, readonly=True)
+        client = getattr(bot, 'client', None)
+        result, data = (client.safe_select(folder, readonly=True) if client else bot.imap.select(folder, readonly=True))
         if result != 'OK':
             print(f"❌ Nie można otworzyć folderu {folder}")
             return
 
         # Krok 2: Sprawdź corruption
         print("🔍 Sprawdzam corruption UIDs...")
-        result, data = bot.imap.uid('SEARCH', None, 'ALL')
+        result, data = (client.safe_uid('SEARCH', None, 'ALL') if client else bot.imap.uid('SEARCH', None, 'ALL'))
         if result == 'OK' and data and data[0]:
             uids = data[0].split()[:10]  # Test pierwszych 10 UIDs
             corrupted_count = 0
 
             for uid in uids:
-                result, test_data = bot.imap.uid('FETCH', uid, '(FLAGS)')
+                result, test_data = (client.safe_uid('FETCH', uid, '(FLAGS)') if client else bot.imap.uid('FETCH', uid, '(FLAGS)'))
                 if result != 'OK' or not test_data or test_data == [None]:
                     corrupted_count += 1
 
@@ -72,13 +73,16 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
         print(f"🔄 Przenoszę emaile z {folder} do {repair_folder}...")
 
         # Przełącz na tryb read-write
-        result, data = bot.imap.select(folder, readonly=False)
+        result, data = (client.safe_select(folder, readonly=False) if client else bot.imap.select(folder, readonly=False))
         if result != 'OK':
             print(f"❌ Nie można otworzyć {folder} w trybie read-write")
             return
 
         # Użyj sekwencyjnych numerów (nie UIDs)
-        result, data = bot.imap.search(None, 'ALL')
+        if client:
+            result, data = client.safe_search(None, 'ALL')
+        else:
+            result, data = bot.imap.search(None, 'ALL')
         if result == 'OK' and data and data[0]:
             seq_nums = data[0].split()
             total_emails = len(seq_nums)
@@ -99,9 +103,14 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
                     try:
                         # COPY + STORE \Deleted + EXPUNGE
                         mailbox_encoded = bot._encode_mailbox(repair_folder)
-                        bot.imap.copy(batch_str, mailbox_encoded)
-                        bot.imap.store(batch_str, '+FLAGS', '\\Deleted')
-                        bot.imap.expunge()
+                        if client:
+                            client.safe_copy(batch_str, mailbox_encoded)
+                            client.safe_store(batch_str, '+FLAGS', '\\Deleted')
+                            client.safe_expunge()
+                        else:
+                            bot.imap.copy(batch_str, mailbox_encoded)
+                            bot.imap.store(batch_str, '+FLAGS', '\\Deleted')
+                            bot.imap.expunge()
 
                         moved_count += len(batch)
                         print(f"   Przeniesiono: {moved_count}/{total_emails} emaili", end='\r')
@@ -116,9 +125,12 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
         print(f"🔄 Przenoszę emaile z powrotem z {repair_folder} do {folder}...")
 
         if not dry_run:
-            result, data = bot.imap.select(repair_folder, readonly=False)
+            result, data = (client.safe_select(repair_folder, readonly=False) if client else bot.imap.select(repair_folder, readonly=False))
             if result == 'OK':
-                result, data = bot.imap.search(None, 'ALL')
+                if client:
+                    result, data = client.safe_search(None, 'ALL')
+                else:
+                    result, data = bot.imap.search(None, 'ALL')
                 if result == 'OK' and data and data[0]:
                     seq_nums = data[0].split()
 
@@ -131,9 +143,14 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
 
                         try:
                             mailbox_encoded = bot._encode_mailbox(folder)
-                            bot.imap.copy(batch_str, mailbox_encoded)
-                            bot.imap.store(batch_str, '+FLAGS', '\\Deleted')
-                            bot.imap.expunge()
+                            if client:
+                                client.safe_copy(batch_str, mailbox_encoded)
+                                client.safe_store(batch_str, '+FLAGS', '\\Deleted')
+                                client.safe_expunge()
+                            else:
+                                bot.imap.copy(batch_str, mailbox_encoded)
+                                bot.imap.store(batch_str, '+FLAGS', '\\Deleted')
+                                bot.imap.expunge()
 
                             moved_back += len(batch)
                             print(f"   Przywrócono: {moved_back}/{len(seq_nums)} emaili", end='\r')
@@ -151,8 +168,12 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
         print(f"🗑️  Usuwam folder tymczasowy: {repair_folder}")
         if not dry_run:
             try:
-                bot.imap.select()  # Deselect current folder
-                bot.imap.delete(bot._encode_mailbox(repair_folder))
+                if client:
+                    client.safe_select()
+                    client.safe_delete(bot._encode_mailbox(repair_folder))
+                else:
+                    bot.imap.select()  # Deselect current folder
+                    bot.imap.delete(bot._encode_mailbox(repair_folder))
                 print("✅ Folder tymczasowy usunięty")
             except Exception as e:
                 print(f"⚠️  Nie można usunąć folderu tymczasowego: {e}")
@@ -164,15 +185,15 @@ def repair_mailbox(bot, folder: str = 'INBOX', force: bool = False, dry_run: boo
         # Krok 7: Weryfikacja
         print("🔍 Weryfikuję naprawę...")
         if not dry_run:
-            result, data = bot.imap.select(folder, readonly=True)
+            result, data = (client.safe_select(folder, readonly=True) if client else bot.imap.select(folder, readonly=True))
             if result == 'OK':
-                result, data = bot.imap.uid('SEARCH', None, 'ALL')
+                result, data = (client.safe_uid('SEARCH', None, 'ALL') if client else bot.imap.uid('SEARCH', None, 'ALL'))
                 if result == 'OK' and data and data[0]:
                     uids = data[0].split()[:10]
                     working_count = 0
 
                     for uid in uids:
-                        result, test_data = bot.imap.uid('FETCH', uid, '(FLAGS)')
+                        result, test_data = (client.safe_uid('FETCH', uid, '(FLAGS)') if client else bot.imap.uid('FETCH', uid, '(FLAGS)'))
                         if result == 'OK' and test_data and test_data != [None]:
                             working_count += 1
 

@@ -12,14 +12,15 @@ class FolderManager:
     """
 
     def __init__(self, ctx):
-        self.ctx = ctx  # expects attributes: imap, verbose, dry_run, _delim_cache
+        self.ctx = ctx  # expects attributes: imap, client, verbose, dry_run, _delim_cache
 
     # ----- Low-level helpers -----
     def _get_hierarchy_delimiter(self) -> str:
         if getattr(self.ctx, "_delim_cache", None):
             return self.ctx._delim_cache
         try:
-            result, data = self.ctx.imap.list()
+            client = getattr(self.ctx, 'client', None)
+            result, data = client.safe_list() if client else self.ctx.imap.list()
             if result == 'OK' and data and len(data) > 0:
                 sample = data[0].decode(errors='ignore')
                 parts = sample.split('"')
@@ -95,7 +96,8 @@ class FolderManager:
     # ----- High-level operations -----
     def get_folders(self) -> List[str]:
         folders: List[str] = []
-        result, folder_list = self.ctx.imap.list()
+        client = getattr(self.ctx, 'client', None)
+        result, folder_list = client.safe_list() if client else self.ctx.imap.list()
         for raw in folder_list or []:
             if not raw:
                 continue
@@ -108,7 +110,8 @@ class FolderManager:
         if not getattr(self.ctx, 'verbose', False):
             return
         try:
-            result, data = self.ctx.imap.list()
+            client = getattr(self.ctx, 'client', None)
+            result, data = client.safe_list() if client else self.ctx.imap.list()
             if result != 'OK' or not data:
                 print("ℹ️ Nie udało się pobrać listy folderów (LIST)")
                 return
@@ -138,7 +141,8 @@ class FolderManager:
                     print(f"🧪 [DRY-RUN] Utworzyłbym folder: {folder_name}")
                 return
             mailbox = self._encode_mailbox(folder_name)
-            typ, resp = self.ctx.imap.create(mailbox)
+            client = getattr(self.ctx, 'client', None)
+            typ, resp = client.safe_create(mailbox) if client else self.ctx.imap.create(mailbox)
             if typ == 'OK':
                 if getattr(self.ctx, 'verbose', False):
                     print(f"📁 Utworzono folder: {folder_name}")
@@ -163,7 +167,8 @@ class FolderManager:
                     print(f"🧪 [DRY-RUN] Zasubskrybowałbym folder: {folder_name}")
                 return
             mailbox = self._encode_mailbox(folder_name)
-            typ, resp = self.ctx.imap.subscribe(mailbox)
+            client = getattr(self.ctx, 'client', None)
+            typ, resp = client.safe_subscribe(mailbox) if client else self.ctx.imap.subscribe(mailbox)
             if typ == 'OK':
                 if getattr(self.ctx, 'verbose', False):
                     print(f"🔔 Subskrybowano folder: {folder_name}")
@@ -262,7 +267,8 @@ class FolderManager:
                 try:
                     old_mb = self._encode_mailbox(f)
                     new_mb = self._encode_mailbox(candidate)
-                    typ, resp = self.ctx.imap.rename(old_mb, new_mb)
+                    client = getattr(self.ctx, 'client', None)
+                    typ, resp = client.safe_rename(old_mb, new_mb) if client else self.ctx.imap.rename(old_mb, new_mb)
                     if typ == 'OK':
                         if getattr(self.ctx, 'verbose', False):
                             print(f"📂 Zmieniono nazwę folderu: {f} -> {candidate}")
@@ -297,10 +303,11 @@ class FolderManager:
                 has_children = any((f != name) and f.startswith(name + (delim or '')) for f in folders)
                 if has_children:
                     continue
-                typ, _ = self.ctx.imap.select(name, readonly=True)
+                client = getattr(self.ctx, 'client', None)
+                typ, _ = client.safe_select(name, readonly=True) if client else self.ctx.imap.select(name, readonly=True)
                 if typ != 'OK':
                     continue
-                res, data = self.ctx.imap.uid('SEARCH', None, 'ALL')
+                res, data = client.safe_uid('SEARCH', None, 'ALL') if client else self.ctx.imap.uid('SEARCH', None, 'ALL')
                 count = len(data[0].split()) if res == 'OK' and data and data[0] else 0
                 if count == 0:
                     to_delete.append(name)
@@ -311,11 +318,15 @@ class FolderManager:
                             print(f"🧪 [DRY-RUN] Usunąłbym pusty folder kategorii: {mbox}")
                         continue
                     mailbox = self._encode_mailbox(mbox)
+                    client = getattr(self.ctx, 'client', None)
                     try:
-                        self.ctx.imap.unsubscribe(mailbox)
+                        if client:
+                            client.safe_unsubscribe(mailbox)
+                        else:
+                            self.ctx.imap.unsubscribe(mailbox)
                     except Exception:
                         pass
-                    typ, resp = self.ctx.imap.delete(mailbox)
+                    typ, resp = client.safe_delete(mailbox) if client else self.ctx.imap.delete(mailbox)
                     if typ == 'OK':
                         if getattr(self.ctx, 'verbose', False):
                             print(f"🗑️  Usunięto pusty folder kategorii: {mbox}")

@@ -26,22 +26,22 @@ Status na: 2025-10-04
 - [ ] Zweryfikować logowanie: domyślnie tylko błędy, pełne logi z `--verbose`
 - [ ] Rozbić `email_organizer.py` na mniejsze moduły:
   - [x] `llmass/organizer/folders.py` – tworzenie/subskrypcja/migracje/cleanup folderów
-  - [x] `llmass/organizer/corruption.py` – detekcja corruption, przełączanie strategii
   - [x] `llmass/organizer/fetcher.py` – bezpieczne pobieranie (UID/SEQ), limit, kompensacja
   - [x] `llmass/organizer/filters.py` – spam, krótkie treści, aktywne konwersacje
   - [x] `llmass/organizer/actions.py` – MOVE/COPY/STORE/EXPUNGE
   - [x] `llmass/organizer/categorize.py` – grupowanie i dopasowanie kategorii
   - [x] `llmass/organizer/text_utils.py` – fabryka wektoryzatora TF-IDF (`_make_vectorizer`)
-- [ ] Wyodrębnić IMAP warstwę:
-  - [ ] `llmass/imap/session.py` – połączenie/select/search/fetch (safe/seq)
-  - [ ] `llmass/imap/client.py` – strategie, retry/backoff, batchowanie
-- [ ] Zastąpić `EmailOrganizer` nowym pipeline (z zachowaniem cienkiej warstwy CLI)
+- [x] Wyodrębnić IMAP warstwę:
+  - [x] `llmass/imap/session.py` – połączenie/select/search/fetch (safe/seq) [szkielet]
+  - [x] `llmass/imap/client.py` – strategie, retry/backoff, batchowanie [szkielet]
+  - [x] Integracja `ImapSession/ImapClient` w `email_organizer.py` i modułach (pełna migracja)
+  - [ ] Fabryka do tworzenia `ImapSession`+`ImapClient` (flagi: retries/backoff, verbose)
+  - [ ] Migracja `email_responder.py` i testów na `ImapClient`
+  - [ ] Zastąpić `EmailOrganizer` nowym pipeline (z zachowaniem cienkiej warstwy CLI)
 - [ ] Dodać MCP (Model Context Protocol): `llmass/mcp/client.py`, `llmass/mcp/server.py`
 - [ ] Włączyć prosty router (Camel-like) z `llmass/core/router.py` do orkiestracji
 - [ ] Testy jednostkowe dla nowych modułów i integracji CLI
 - [ ] Dokumentacja architektury (README + diagramy)
-
-### Opcjonalne
 - [ ] Dodać sub-projekt Groovy + Apache Camel (`camel-groovy/`) jako przykład integracji
 
 

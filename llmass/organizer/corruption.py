@@ -6,7 +6,7 @@ def check_and_handle_corruption(ctx, email_ids: List[bytes]) -> float:
     Checks UID corruption using the first up-to-10 IDs and, if needed, flips
     ctx.use_sequence_numbers to True. Returns the computed corruption ratio.
 
-    - Uses ctx.imap.uid('FETCH', uid, '(RFC822)') to probe
+    - Uses ctx.client.safe_uid('FETCH', uid, '(RFC822)') when available to probe
     - Respects ctx.verbose for detailed prints
     - Prints critical warnings regardless of verbosity (treated as errors)
     """
@@ -21,7 +21,11 @@ def check_and_handle_corruption(ctx, email_ids: List[bytes]) -> float:
 
     for test_id in test_ids:
         try:
-            result, test_data = ctx.imap.uid('FETCH', test_id, '(RFC822)')
+            client = getattr(ctx, 'client', None)
+            if client:
+                result, test_data = client.safe_uid('FETCH', test_id, '(RFC822)')
+            else:
+                result, test_data = ctx.imap.uid('FETCH', test_id, '(RFC822)')
             if getattr(ctx, 'verbose', False):
                 print(f"🔍 Corruption test: UID {test_id} -> result='{result}', data={test_data}, type={type(test_data)}")
 

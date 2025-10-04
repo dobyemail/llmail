@@ -105,15 +105,23 @@ def get_sent_drafts_message_ids(ctx) -> Set[str]:
 
     for folder in folders_to_check[:4]:
         try:
-            ctx.imap.select(folder, readonly=True)
-            result, data = ctx.imap.uid('SEARCH', None, 'SINCE', imap_since)
+            client = getattr(ctx, 'client', None)
+            if client:
+                client.safe_select(folder, readonly=True)
+                result, data = client.safe_uid('SEARCH', None, 'SINCE', imap_since)
+            else:
+                ctx.imap.select(folder, readonly=True)
+                result, data = ctx.imap.uid('SEARCH', None, 'SINCE', imap_since)
             if result != 'OK' or not data or not data[0]:
                 continue
             uids = data[0].split()
             uids = uids[-per_folder_limit:]
 
             for uid in uids:
-                res, d = ctx.imap.uid('FETCH', uid, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
+                if client:
+                    res, d = client.safe_uid('FETCH', uid, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
+                else:
+                    res, d = ctx.imap.uid('FETCH', uid, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
                 if res != 'OK' or not d or not d[0]:
                     continue
                 header_block = d[0][1].decode(errors='ignore') if isinstance(d[0][1], (bytes, bytearray)) else str(d[0][1])

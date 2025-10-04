@@ -31,13 +31,14 @@ def fetch_and_filter(ctx, email_ids: List[bytes], limit: int, sent_drafts_ids: s
 
         try:
             # Fetch message (SEQ or UID)
+            client = getattr(ctx, 'client', None)
             if getattr(ctx, 'use_sequence_numbers', False):
                 seq_num = str(len(email_ids) - idx + 1)  # newest first
-                result, data = ctx.imap.fetch(seq_num, '(RFC822)')
+                result, data = client.safe_fetch(seq_num, '(RFC822)') if client else ctx.imap.fetch(seq_num, '(RFC822)')
                 if getattr(ctx, 'verbose', False) and idx <= 5:
                     print(f"\n🔧 Email {idx}: Tryb sekwencyjny, używam SEQ={seq_num}")
             else:
-                result, data = ctx.imap.uid('FETCH', email_id, '(RFC822)')
+                result, data = client.safe_uid('FETCH', email_id, '(RFC822)') if client else ctx.imap.uid('FETCH', email_id, '(RFC822)')
                 if getattr(ctx, 'verbose', False) and idx <= 5:
                     print(f"\n🔍 Email {idx}: Tryb UID, używam UID={email_id}")
 

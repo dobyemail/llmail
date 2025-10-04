@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
   - `llmass/organizer/repair.py` (delegated repair implementation)
   - `llmass/core/router.py` (Camel-like router skeleton)
   - `llmass/logging_utils.py` (verbose-aware logging helpers and short())
+  - `llmass/imap/session.py` and `llmass/imap/client.py` (IMAP session/client skeletons with retry/backoff)
+- `ImapSession`: added `copy()` and `store()` passthroughs; `ImapClient`: added `safe_copy()` and `safe_store()` wrappers
 - Refactor plan added to `TODO.md` with detailed checklist (≤500 lines per file target).
 
 ### Changed
@@ -27,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Extracted move operations (MOVE/COPY/STORE) into `llmass/organizer/actions.py`.
 - Extracted categorization and category name generation into `llmass/organizer/categorize.py`.
 - Extracted TF-IDF vectorizer factory into `llmass/organizer/text_utils.py` and delegated `_make_vectorizer()`.
+- **IMAP Layer Integration**: All direct `imap.*` calls in `email_organizer.py` and organizer modules now use `ImapClient.safe_*` wrappers with retry/backoff for improved reliability.
 
 ## [1.1.5] - 2025-10-04
 
