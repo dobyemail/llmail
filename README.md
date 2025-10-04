@@ -11,6 +11,10 @@ Zestaw botów AI do automatycznego zarządzania pocztą email.
 - ✅ Konfigurowalne grupowanie (próg podobieństwa, min. rozmiar klastra, min. udział %)
   - Domyślnie: similarity=0.25, min_size=2, min_fraction=0.10
 - ✅ Cross-folder spam: automatyczne przenoszenie maili z INBOX podobnych do wiadomości w SPAM/Kosz
+- ✅ Ponowne użycie istniejących kategorii (dopasowanie po treści i nadawcach)
+- ✅ Automatyczne czyszczenie pustych folderów Category* przy starcie
+- ✅ Konfigurowalny TF‑IDF (cechy i stopwords)
+- ✅ LOG_LEVEL i tryb DRY‑RUN
 - ✅ Obsługa wielu serwerów pocztowych
 
 ### Email Responder Bot  
@@ -77,6 +81,34 @@ make logs          # Pokaż logi
 - **Email Responder Bot**: Generuje odpowiedzi AI na emaile
 - **Test Runner**: Automatyczny pakiet testów z pokryciem kodu
 
+## Architektura systemu (Organizer)
+
+- **[email_organizer.py]**: główny bot organizujący skrzynkę
+  - Pobiera emaile z wybranego folderu (`INBOX` domyślnie)
+  - Wykrywa spam heurystycznie (`is_spam`) oraz przez podobieństwo do SPAM/Kosz
+  - Pomija wiadomości ubogie w treść (`_has_sufficient_text`), by nie fałszować podobieństw
+  - Grupuje podobne wiadomości (TF‑IDF + cosine)
+  - Zamiast tworzyć nowe foldery, najpierw próbuje dopasować do istniejących kategorii (`_choose_existing_category_folder`)
+  - Sanityzuje i tworzy foldery kategorii jako podfoldery `INBOX`
+  - Czyści puste `Category*` na starcie
+- **[email_responder.py]**: generowanie odpowiedzi z LLM (drafty)
+- **[email_generator.py]**: generator przykładowych wiadomości (w tym spam)
+- **Dovecot**: IMAP store (test)
+- **MailHog**: SMTP + UI (test)
+
+### Przepływ przetwarzania (Organizer)
+
+1) `CONNECT` do IMAP i detekcja delimitera folderów
+2) `CLEANUP`: usuń puste `Category*` (opcjonalne)
+3) `FETCH` z wybranego folderu (filtr czasu)
+4) `SPAM HEURISTICS`: przenieś oczywisty spam
+5) `CONTENT CHECK`: jeśli wiadomość ma za mało tekstu → pomiń z kategoryzacji
+6) `CROSS-SPAM`: wykryj podobieństwo do SPAM/Kosz i przenieś (konfigurowalne)
+7) `CLUSTERING`: grupuj pozostałe
+8) `CATEGORY MATCH`: dopasuj klaster do istniejących `INBOX.Category_*`
+9) `CREATE/MOVE`: twórz folder (jeśli trzeba) i przenoś maile
+10) `EXPUNGE` (wyłączone w DRY‑RUN)
+
 ### Dostępne komendy Make
 
 ```bash
@@ -126,6 +158,9 @@ python email_organizer.py \
   --similarity-threshold 0.20 \
   --min-cluster-size 2 \
   --min-cluster-fraction 0.05
+
+# Przetwarzanie konkretnego folderu (i opcjonalnie podfolderów)
+python email_organizer.py --folder INBOX --include-subfolders --limit 50
 
 # Cross-folder spam (porównanie z SPAM/Kosz)
 # Jeśli wiadomość z INBOX jest podobna do maili w SPAM/Kosz (cosine >= CROSS_SPAM_SIMILARITY),
@@ -185,6 +220,36 @@ MIN_CLUSTER_FRACTION=0.10
 CROSS_SPAM_SIMILARITY=0.6
 CROSS_SPAM_SAMPLE_LIMIT=200
 ```
+
+#### Dopasowanie do istniejących kategorii w `.env`
+```
+CATEGORY_MATCH_SIMILARITY=0.5
+CATEGORY_SENDER_WEIGHT=0.2
+CATEGORY_SAMPLE_LIMIT=50
+```
+
+#### Sprzątanie pustych kategorii
+```
+CLEANUP_EMPTY_CATEGORY_FOLDERS=true
+```
+
+#### Vectorizer (TF‑IDF) i Stopwords
+```
+TFIDF_MAX_FEATURES=100
+STOPWORDS=none   # none|english
+```
+
+#### Progi minimalnej treści (pomijanie maili zbyt ubogich w tekst)
+```
+CONTENT_MIN_CHARS=40
+CONTENT_MIN_TOKENS=6
+```
+
+#### Logowanie i tryb testowy
+```
+LOG_LEVEL=INFO   # DEBUG|INFO|WARNING|ERROR
+DRY_RUN=false
+```
 ```
 W Docker Compose możesz je nadpisać na poziomie usług lub w `.env`.
 
@@ -231,8 +296,18 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `--similarity-threshold`: Próg podobieństwa (0-1) dla grupowania, domyślnie `0.25`
 - `--min-cluster-size`: Minimalna liczba emaili w klastrze, domyślnie `2`
 - `--min-cluster-fraction`: Minimalny udział wiadomości w klastrze (0-1), domyślnie `0.10`
+- `--folder`: Folder do przetworzenia (domyślnie: INBOX)
+- `--include-subfolders`: Włącz przetwarzanie podfolderów (eksperymentalne)
 - `CROSS_SPAM_SIMILARITY` (ENV): Próg podobieństwa INBOX do SPAM/Kosz (0-1), domyślnie `0.6`
 - `CROSS_SPAM_SAMPLE_LIMIT` (ENV): Limit próby maili referencyjnych z SPAM/Kosz, domyślnie `200`
+- `CATEGORY_MATCH_SIMILARITY` (ENV): Próg dopasowania klastra do istniejącej kategorii, domyślnie `0.5`
+- `CATEGORY_SENDER_WEIGHT` (ENV): Waga zgodności nadawców w dopasowaniu, domyślnie `0.2`
+- `CATEGORY_SAMPLE_LIMIT` (ENV): Limit maili referencyjnych z folderów kategorii, domyślnie `50`
+- `CLEANUP_EMPTY_CATEGORY_FOLDERS` (ENV): Usuwaj puste Category* przy starcie, domyślnie `true`
+- `TFIDF_MAX_FEATURES` (ENV): Liczba cech TF‑IDF, domyślnie `100`
+- `STOPWORDS` (ENV): Zbiór stopwords dla TF‑IDF (`none|english`), domyślnie `none`
+- `LOG_LEVEL` (ENV): Poziom logowania (`DEBUG|INFO|WARNING|ERROR`), domyślnie `INFO`
+- `DRY_RUN` (ENV): Tryb bez skutków ubocznych (`true|false`)
 
 ### Email Responder
 - `--email`: Adres email (wymagany)

@@ -8,6 +8,7 @@ import imaplib
 import email
 from email.header import decode_header
 from email.utils import parseaddr
+import logging
 import argparse
 import os
 import sys
@@ -28,7 +29,7 @@ warnings.filterwarnings('ignore')
 class EmailOrganizer:
     def __init__(self, email_address: str, password: str, imap_server: str = None,
                  similarity_threshold: float = None, min_cluster_size: int = None,
-                 min_cluster_fraction: float = None):
+                 min_cluster_fraction: float = None, dry_run: bool = None):
         """Inicjalizacja bota organizującego emaile"""
         self.email_address = email_address
         self.password = password
@@ -40,7 +41,11 @@ class EmailOrganizer:
             self.imap_server = self._detect_imap_server(email_address)
         
         self.imap = None
-        self.vectorizer = TfidfVectorizer(max_features=100, stop_words=None)
+        self._delim_cache = None
+        # Konfiguracja wektoryzatora
+        self.tfidf_max_features = int(os.getenv('TFIDF_MAX_FEATURES', '100'))
+        self.stopwords_mode = (os.getenv('STOPWORDS', 'none') or 'none').lower()
+        self.vectorizer = self._make_vectorizer()
         # Parametry kategoryzacji (można nadpisać argumentami lub .env)
         self.similarity_threshold = similarity_threshold if similarity_threshold is not None else float(os.getenv('SIMILARITY_THRESHOLD', '0.25'))
         self.min_cluster_size = min_cluster_size if min_cluster_size is not None else int(os.getenv('MIN_CLUSTER_SIZE', '2'))
@@ -54,6 +59,29 @@ class EmailOrganizer:
         self.category_sample_limit = int(os.getenv('CATEGORY_SAMPLE_LIMIT', '50'))
         # Sprzątanie: usuwaj puste foldery kategorii przy starcie
         self.cleanup_empty_categories = os.getenv('CLEANUP_EMPTY_CATEGORY_FOLDERS', 'true').lower() in ('1', 'true', 'yes')
+        # Tryb dry-run (CLI > ENV)
+        self.dry_run = (dry_run if dry_run is not None else (os.getenv('DRY_RUN', '').lower() in ('1', 'true', 'yes')))
+        # Minimalne wymagania treści do porównań
+        self.content_min_chars = int(os.getenv('CONTENT_MIN_CHARS', '40'))
+        self.content_min_tokens = int(os.getenv('CONTENT_MIN_TOKENS', '6'))
+        # Logger
+        self.logger = logging.getLogger('email_organizer')
+        level = getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper(), logging.INFO)
+        self.logger.setLevel(level)
+        if not self.logger.handlers:
+            ch = logging.StreamHandler()
+            ch.setLevel(level)
+            fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+            ch.setFormatter(fmt)
+            self.logger.addHandler(ch)
+
+    def _make_vectorizer(self) -> TfidfVectorizer:
+        """Tworzy skonfigurowany TfidfVectorizer wg ustawień (ENV)."""
+        stop = None
+        if self.stopwords_mode in ('english', 'en'):
+            stop = 'english'
+        # Inne języki można dodać później (np. PL), na razie 'none' lub 'english'
+        return TfidfVectorizer(max_features=self.tfidf_max_features, stop_words=stop)
         
     def _detect_imap_server(self, email_address: str) -> str:
         """Automatyczne wykrywanie serwera IMAP na podstawie domeny"""
@@ -77,6 +105,12 @@ class EmailOrganizer:
             self.imap = imaplib.IMAP4_SSL(self.imap_server)
             self.imap.login(self.email_address, self.password)
             print(f"✅ Połączono z {self.imap_server}")
+            # Zcache'uj delimiter
+            try:
+                self._delim_cache = None
+                self._delim_cache = self._get_hierarchy_delimiter()
+            except Exception:
+                self._delim_cache = None
             return True
         except Exception as e:
             print(f"❌ Błąd połączenia: {e}")
@@ -98,16 +132,21 @@ class EmailOrganizer:
     
     def _get_hierarchy_delimiter(self) -> str:
         """Pobiera delimiter hierarchii folderów (np. "/" lub ".")"""
+        # Użyj cache jeśli dostępny
+        if self._delim_cache:
+            return self._delim_cache
         try:
             result, data = self.imap.list()
             if result == 'OK' and data and len(data) > 0:
                 sample = data[0].decode()
                 parts = sample.split('"')
                 if len(parts) >= 3:
-                    return parts[1]
+                    self._delim_cache = parts[1]
+                    return self._delim_cache
         except Exception:
             pass
-        return '/'
+        self._delim_cache = '/'
+        return self._delim_cache
 
     def _sanitize_folder_component(self, s: str, delim: str = None) -> str:
         """Sanityzacja komponentu nazwy folderu do ASCII (bezpieczne znaki).
@@ -205,8 +244,8 @@ class EmailOrganizer:
         delim = self._get_hierarchy_delimiter()
         candidate = f"INBOX{delim}SPAM"
         try:
-            self.imap.create(candidate)
-            print(f"📁 Utworzono folder: {candidate}")
+            # Użyj create_folder, aby respektować DRY-RUN
+            self.create_folder(candidate)
             # Subskrybuj, aby był widoczny w klientach
             try:
                 self.subscribe_folder(candidate)
@@ -216,8 +255,7 @@ class EmailOrganizer:
             # Jeśli tworzenie się nie powiedzie, spróbuj na najwyższym poziomie
             alt = 'SPAM'
             try:
-                self.imap.create(alt)
-                print(f"📁 Utworzono folder: {alt}")
+                self.create_folder(alt)
                 try:
                     self.subscribe_folder(alt)
                 except Exception:
@@ -342,7 +380,7 @@ class EmailOrganizer:
             folder_texts = [f"{m.get('subject','')} {m.get('body','')}" for m in msgs]
             # content similarity
             try:
-                vec = TfidfVectorizer(max_features=100, stop_words=None)
+                vec = self._make_vectorizer()
                 all_texts = cluster_texts + folder_texts
                 tfidf = vec.fit_transform(all_texts)
                 c_mat = tfidf[:len(cluster_texts)]
@@ -404,6 +442,9 @@ class EmailOrganizer:
             # Usuń
             for mbox in to_delete:
                 try:
+                    if self.dry_run:
+                        print(f"🧪 [DRY-RUN] Usunąłbym pusty folder kategorii: {mbox}")
+                        continue
                     mailbox = self._encode_mailbox(mbox)
                     try:
                         self.imap.unsubscribe(mailbox)
@@ -439,8 +480,8 @@ class EmailOrganizer:
 
             # Teksty z INBOX do porównania
             inbox_texts = [f"{e.get('subject','')} {e.get('body','')}" for e in emails_data]
-            # Wektoryzuj wspólnie
-            vec = TfidfVectorizer(max_features=100, stop_words=None)
+            # Wektoryzuj wspólnie (centralny wektoryzator)
+            vec = self._make_vectorizer()
             all_texts = ref_texts + inbox_texts
             tfidf = vec.fit_transform(all_texts)
             ref_matrix = tfidf[:len(ref_texts)]
@@ -518,6 +559,9 @@ class EmailOrganizer:
     def create_folder(self, folder_name: str):
         """Tworzy nowy folder"""
         try:
+            if self.dry_run:
+                print(f"🧪 [DRY-RUN] Utworzyłbym folder: {folder_name}")
+                return
             mailbox = self._encode_mailbox(folder_name)
             typ, resp = self.imap.create(mailbox)
             if typ == 'OK':
@@ -540,6 +584,9 @@ class EmailOrganizer:
     def subscribe_folder(self, folder_name: str):
         """Subskrybuje folder, aby był widoczny w klientach poczty"""
         try:
+            if self.dry_run:
+                print(f"🧪 [DRY-RUN] Zasubskrybowałbym folder: {folder_name}")
+                return
             mailbox = self._encode_mailbox(folder_name)
             typ, resp = self.imap.subscribe(mailbox)
             if typ == 'OK':
@@ -650,6 +697,25 @@ class EmailOrganizer:
         # Decyzja na podstawie sumy miękkich heurystyk nadawcy/tematu
         return score >= 2
     
+    def _has_sufficient_text(self, email_content: Dict) -> bool:
+        """Sprawdza, czy wiadomość ma wystarczającą ilość tekstu do sensownego porównania.
+        Kryteria: minimalna liczba znaków alfanumerycznych lub minimalna liczba tokenów (>=3 znaki).
+        Konfigurowalne przez ENV: CONTENT_MIN_CHARS, CONTENT_MIN_TOKENS.
+        """
+        try:
+            text = f"{email_content.get('subject','')} {email_content.get('body','')}".strip()
+            if not text:
+                return False
+            alnum = re.findall(r"\w", text, flags=re.UNICODE)
+            tokens = re.findall(r"\b\w{3,}\b", text, flags=re.UNICODE)
+            if len(alnum) >= int(self.content_min_chars):
+                return True
+            if len(tokens) >= int(self.content_min_tokens):
+                return True
+            return False
+        except Exception:
+            return False
+    
     def categorize_emails(self, emails: List[Dict]) -> Dict[str, List[int]]:
         """Kategoryzuje emaile używając klasteryzacji"""
         if not emails:
@@ -723,6 +789,9 @@ class EmailOrganizer:
     def move_email(self, email_id: str, target_folder: str):
         """Przenosi email do określonego folderu (UID-based)"""
         try:
+            if self.dry_run:
+                print(f"🧪 [DRY-RUN] Przeniósłbym UID {email_id} do: {target_folder}")
+                return True
             # Upewnij się, że UID jest stringiem
             uid_str = email_id.decode() if isinstance(email_id, bytes) else str(email_id)
             # Zakoduj nazwę folderu do IMAP UTF-7
@@ -753,7 +822,7 @@ class EmailOrganizer:
             print(f"Błąd podczas przenoszenia emaila (UID): {e}")
         return False
     
-    def organize_mailbox(self, limit: int = 100, since_days: int = 7, since_date: str = None):
+    def organize_mailbox(self, limit: int = 100, since_days: int = 7, since_date: str = None, folder: str = None, include_subfolders: bool = False):
         """Główna funkcja organizująca skrzynkę"""
         print("\n🔄 Rozpoczynam organizację skrzynki email...")
         # Usuń puste foldery Category* na starcie
@@ -769,8 +838,10 @@ class EmailOrganizer:
         folders = self.get_folders()
         print(f"📊 Znaleziono {len(folders)} folderów")
         
-        # Analizuj INBOX
-        self.imap.select("INBOX")
+        # Analizuj wskazany folder
+        selected_folder = folder or 'INBOX'
+        self.logger.debug(f"Selecting folder: {selected_folder} (include_subfolders={include_subfolders})")
+        self.imap.select(selected_folder)
         # Ustal kryteria czasu
         imap_since = None
         if since_date:
@@ -794,11 +865,12 @@ class EmailOrganizer:
             return
         
         email_ids = data[0].split()  # UIDs
-        print(f"📧 Znaleziono {len(email_ids)} emaili w INBOX")
+        print(f"📧 Znaleziono {len(email_ids)} emaili w {selected_folder}")
         
         # Pobierz i analizuj emaile
         emails_data = []
         spam_ids = []
+        skipped_low_text = 0
         
         for idx, email_id in enumerate(email_ids[:limit], 1):
             print(f"Analizuję email {idx}/{min(len(email_ids), limit)}...", end='\r')
@@ -815,13 +887,22 @@ class EmailOrganizer:
             if self.is_spam(email_content):
                 spam_ids.append(email_id)
                 print(f"\n🚫 Wykryto SPAM: {email_content.get('subject', 'Brak tematu')[:50]}")
-            else:
-                email_content['id'] = email_id
-                emails_data.append(email_content)
+                continue
+            
+            # Jeśli mało treści, pomiń z kategoryzacji (nie porównuj, nie przenoś)
+            if not self._has_sufficient_text(email_content):
+                print("\nℹ️ Pomijam wiadomość (za mało tekstu do porównań)")
+                skipped_low_text += 1
+                continue
+
+            email_content['id'] = email_id
+            emails_data.append(email_content)
         
         print(f"\n\n📊 Analiza zakończona:")
         print(f"   - Spam: {len(spam_ids)} emaili")
         print(f"   - Do kategoryzacji: {len(emails_data)} emaili")
+        if skipped_low_text:
+            print(f"   - Pominięte (za mało tekstu): {skipped_low_text} emaili")
         
         # Przenieś spam
         # Dodatkowe: wykryj podobne do SPAM/Kosz według podobieństwa
@@ -839,10 +920,11 @@ class EmailOrganizer:
         if spam_ids:
             print(f"✅ Przeniesiono {len(spam_ids)} emaili do folderu SPAM")
             # Upewnij się, że usunięte wiadomości zostały wyczyszczone ze źródła
-            try:
-                self.imap.expunge()
-            except Exception as e:
-                print(f"⚠️  EXPUNGE błąd: {e}")
+            if not self.dry_run:
+                try:
+                    self.imap.expunge()
+                except Exception as e:
+                    print(f"⚠️  EXPUNGE błąd: {e}")
         
         # Kategoryzuj pozostałe emaile
         categories = self.categorize_emails(emails_data)
@@ -884,7 +966,8 @@ class EmailOrganizer:
                 pass
         
         # Ekspunge (usuń permanentnie oznaczone emaile)
-        self.imap.expunge()
+        if not self.dry_run:
+            self.imap.expunge()
     
     def disconnect(self):
         """Rozłącz z serwerem"""
@@ -915,6 +998,10 @@ def main():
                         help='Minimalna liczba emaili w klastrze (domyślnie 2)')
     parser.add_argument('--min-cluster-fraction', type=float, default=None,
                         help='Minimalny ułamek wiadomości w klastrze (domyślnie 0.10)')
+    parser.add_argument('--folder', type=str, default=None,
+                        help='Folder do przetworzenia (domyślnie INBOX)')
+    parser.add_argument('--include-subfolders', action='store_true',
+                        help='Przetwarzaj również podfoldery wskazanego folderu (eksperymentalne)')
     
     args = parser.parse_args()
 
@@ -953,11 +1040,13 @@ def main():
         similarity_threshold=similarity_threshold_arg,
         min_cluster_size=min_cluster_size_arg,
         min_cluster_fraction=min_cluster_fraction_arg,
+        dry_run=args.dry_run if hasattr(args, 'dry_run') else None,
     )
     
     if bot.connect():
         try:
-            bot.organize_mailbox(limit=limit_arg, since_days=since_days_arg, since_date=since_date_arg)
+            bot.organize_mailbox(limit=limit_arg, since_days=since_days_arg, since_date=since_date_arg,
+                                 folder=args.folder, include_subfolders=args.include_subfolders)
         finally:
             bot.disconnect()
 

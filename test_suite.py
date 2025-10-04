@@ -186,6 +186,192 @@ class TestEmailBots:
             self.print_success("LIST parsing returned proper folder names")
         finally:
             organizer_bot.disconnect()
+
+    def test_parse_list_line_samples(self, organizer_bot):
+        """Test: Parser LIST radzi sobie z typowymi odpowiedziami."""
+        self.print_test_header("LIST Line Parsing Samples")
+        samples = [
+            b"(\\HasNoChildren) \".\" \"INBOX.Sent\"",
+            b"(\\HasChildren) \"/\" INBOX",
+            b"(\\Noselect \\HasChildren) \"/\" \"[Gmail]\"",
+        ]
+        for raw in samples:
+            flags, delim, name = organizer_bot._parse_list_line(raw)
+            assert delim in ('.', '/', '')
+            assert isinstance(name, str) and len(name) > 0
+        self.print_success("LIST parser handles common formats")
+
+    def test_encode_and_resolve_category_names(self, organizer_bot):
+        """Test: Sanitizacja nazw kategorii i osadzenie pod INBOX."""
+        self.print_test_header("Category Name Sanitization")
+        organizer_bot._get_hierarchy_delimiter = lambda: '.'
+        # Diakrytyki i delimiter w nazwie
+        resolved = organizer_bot._resolve_category_folder_name('Category_Powiąż.test')
+        assert resolved.startswith('INBOX.')
+        assert 'Powiaz' in resolved and '_test' in resolved
+        # Już pełna ścieżka
+        resolved2 = organizer_bot._resolve_category_folder_name('INBOX.Category_Zapytanie')
+        assert resolved2 == 'INBOX.Category_Zapytanie'
+        self.print_success("Category names are sanitized and placed under INBOX")
+
+    def test_choose_existing_category_folder_mocked(self, organizer_bot):
+        """Test: Dopasowanie do istniejących folderów kategorii po treści/nadawcy."""
+        self.print_test_header("Existing Category Matching")
+        # Cluster emails
+        cluster_emails = [
+            {'subject': 'Dialogplan project update', 'body': 'Dialogplan summary', 'from': 'info@dialogplan.com'},
+            {'subject': 'Dialogplan meeting', 'body': 'Agenda', 'from': 'support@dialogplan.com'},
+        ]
+        # Mock candidates and folder messages
+        organizer_bot._list_category_folders = lambda: ['INBOX.Category_Dialogplan_com', 'INBOX.Category_Www']
+        def _fetch(folder, limit):
+            if folder == 'INBOX.Category_Dialogplan_com':
+                return [
+                    {'subject': 'Dialogplan invoice', 'body': 'Payment details', 'from': 'billing@dialogplan.com'},
+                    {'subject': 'Dialogplan news', 'body': 'Update', 'from': 'news@dialogplan.com'},
+                ]
+            return [
+                {'subject': 'WWW changes', 'body': 'site update', 'from': 'web@host.com'}
+            ]
+        organizer_bot._fetch_messages_from_folder = _fetch
+        organizer_bot.category_match_similarity = 0.2
+        organizer_bot.category_sender_weight = 0.1
+        organizer_bot.category_sample_limit = 10
+        best = organizer_bot._choose_existing_category_folder(cluster_emails)
+        assert best == 'INBOX.Category_Dialogplan_com'
+        self.print_success("Existing folder matched correctly")
+
+    def test_cross_spam_similarity_mocked(self, organizer_bot):
+        """Test: Podobieństwo do SPAM/Kosz przenosi właściwe maile."""
+        self.print_test_header("Cross-folder Spam Similarity")
+        # Prepare emails_data (INBOX)
+        emails_data = [
+            {'id': b'1', 'subject': 'Dialogplan update', 'body': 'Latest Dialogplan features'},
+            {'id': b'2', 'subject': 'General news', 'body': 'Hello world'},
+        ]
+        # Mock reference fetcher
+        organizer_bot._fetch_texts_from_folder = lambda folder, limit: ['Dialogplan announcement', 'Other content']
+        organizer_bot._find_trash_folders = lambda: []
+        organizer_bot.cross_spam_similarity = 0.3
+        uids, rm_idx = organizer_bot._mark_inbox_like_spam(emails_data, 'INBOX.SPAM')
+        assert b'1' in uids and b'2' not in uids
+        assert 0 in rm_idx and 1 not in rm_idx
+        self.print_success("Cross-folder similarity marks correct emails")
+
+    def test_cleanup_empty_category_folders_mocked(self, organizer_bot):
+        """Test: Usuwanie pustych folderów Category* działa na sucho z mockiem IMAP."""
+        self.print_test_header("Cleanup Empty Category Folders")
+        # Mock folder list and delimiter
+        organizer_bot.get_folders = lambda: [
+            'INBOX.Category_Empty',
+            'INBOX.Category_NonEmpty',
+            'INBOX.Category_WithChild',
+            'INBOX.Category_WithChild.Sub',
+            'INBOX.Other'
+        ]
+        organizer_bot._get_hierarchy_delimiter = lambda: '.'
+        class DummyImap:
+            def __init__(self):
+                self.deleted = []
+                self._selected = None
+            def select(self, name, readonly=False):
+                self._selected = name
+                return ('OK', [b''])
+            def uid(self, *args):
+                if args[0] == 'SEARCH':
+                    if self._selected.endswith('Category_Empty'):
+                        return ('OK', [b''])
+                    return ('OK', [b'1 2'])
+                return ('OK', [b''])
+            def unsubscribe(self, mailbox):
+                return ('OK', [b''])
+            def delete(self, mailbox):
+                # mailbox can be str
+                self.deleted.append(mailbox)
+                return ('OK', [b''])
+        organizer_bot.imap = DummyImap()
+        organizer_bot.cleanup_empty_categories = True
+        organizer_bot._cleanup_empty_category_folders()
+        # Ensure only the empty one was deleted
+        assert any('Category_Empty' in x for x in organizer_bot.imap.deleted)
+        assert not any('Category_NonEmpty' in x for x in organizer_bot.imap.deleted)
+        assert not any('Category_WithChild' in x and not x.endswith('Sub') for x in organizer_bot.imap.deleted)
+        self.print_success("Empty Category folders are removed, others preserved")
+
+    def test_is_spam_sender_heuristics_only(self):
+        """Test: Heurystyki nadawcy same w sobie mogą dać wynik spam."""
+        self.print_test_header("Sender Heuristics Spam")
+        from email_organizer import EmailOrganizer
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot')
+        email_obj = {
+            'subject': 'hello',
+            'body': 'hello',
+            'from': '99999999@badxyz.xyz'  # .xyz (sus TLD) + local-part z cyfr
+        }
+        assert bot.is_spam(email_obj) is True
+        self.print_success("Sender-only heuristics can mark spam when strong enough")
+
+    def test_vectorizer_config_env(self, monkeypatch):
+        """Test: Konfiguracja wektoryzatora przez ENV (STOPWORDS, TFIDF_MAX_FEATURES)."""
+        self.print_test_header("Vectorizer Config via ENV")
+        from email_organizer import EmailOrganizer
+        monkeypatch.setenv('STOPWORDS', 'english')
+        monkeypatch.setenv('TFIDF_MAX_FEATURES', '50')
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot')
+        vec = bot._make_vectorizer()
+        assert getattr(vec, 'max_features') == 50
+        assert getattr(vec, 'stop_words') == 'english'
+        self.print_success("Vectorizer respects ENV config")
+
+    def test_dry_run_behavior(self):
+        """Test: Dry-run nie wywołuje operacji IMAP i zwraca prawdę dla move."""
+        self.print_test_header("Dry-run Behaviour")
+        from email_organizer import EmailOrganizer
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot', dry_run=True)
+        class DummyImap:
+            def __init__(self):
+                self.created = []
+                self.subscribed = []
+                self.moved = []
+            def create(self, m):
+                self.created.append(m)
+                return ('OK', [b''])
+            def subscribe(self, m):
+                self.subscribed.append(m)
+                return ('OK', [b''])
+            def uid(self, *args):
+                self.moved.append(args)
+                return ('OK', [b''])
+        bot.imap = DummyImap()
+        bot.create_folder('INBOX.Category_Test')  # dry-run: no create
+        ok = bot.move_email(b'1', 'INBOX.Category_Test')
+        assert ok is True
+        assert bot.imap.created == [] and bot.imap.subscribed == [] and bot.imap.moved == []
+        self.print_success("Dry-run avoids IMAP side-effects")
+
+    def test_content_sufficiency_helper(self, monkeypatch):
+        """Test: _has_sufficient_text() prawidłowo klasyfikuje ilość treści."""
+        self.print_test_header("Content Sufficiency Helper")
+        from email_organizer import EmailOrganizer
+        # Ustaw progi
+        monkeypatch.setenv('CONTENT_MIN_CHARS', '40')
+        monkeypatch.setenv('CONTENT_MIN_TOKENS', '6')
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot')
+
+        low_text = {
+            'subject': 'Hi',
+            'body': 'ok',
+            'from': 'a@b.com'
+        }
+        rich_text = {
+            'subject': 'Meeting schedule and deliverables update',
+            'body': 'Please review the attached document for project timeline and responsibilities allocation.',
+            'from': 'boss@company.com'
+        }
+
+        assert bot._has_sufficient_text(low_text) is False
+        assert bot._has_sufficient_text(rich_text) is True
+        self.print_success("Content sufficiency thresholds respected")
     
     def test_spam_detection(self, organizer_bot):
         """Test 5: Wykrywanie spamu"""

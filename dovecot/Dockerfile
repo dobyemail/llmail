@@ -4,11 +4,6 @@
 # ============================================
 FROM dovecot/dovecot:latest
 
-# Instalacja dodatkowych narzędzi
-RUN apt-get update && apt-get install -y \
-    netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
-
 # Kopiuj konfigurację
 COPY dovecot.conf /etc/dovecot/dovecot.conf
 COPY users /etc/dovecot/users
