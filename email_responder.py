@@ -17,6 +17,7 @@ from typing import List, Dict, Optional
 import json
 import time
 from transformers import AutoTokenizer, AutoModelForCausalLM
+import re
 import torch
 from dotenv import load_dotenv
 
@@ -289,6 +290,45 @@ Z poważaniem,
             print(f"❌ Błąd podczas zapisywania draftu: {e}")
             return False
     
+    def _parse_list_line(self, raw):
+        """Parsuje linię odpowiedzi LIST do (flags, delimiter, name).
+        Zwraca ([], '/', '') jeśli nie uda się sparsować.
+        """
+        try:
+            line = raw.decode(errors='ignore') if isinstance(raw, (bytes, bytearray)) else str(raw)
+            # Przykłady:
+            # (\HasNoChildren) "." "INBOX.Sent"
+            # (\HasChildren) "/" INBOX
+            # (\Noselect \HasChildren) "/" "[Gmail]"
+            m = re.match(r"\((?P<flags>[^)]*)\)\s+\"(?P<delim>[^\"]*)\"\s+(?P<name>.*)$", line)
+            if not m:
+                # Spróbuj bez cudzysłowów wokół delim
+                m2 = re.match(r"\((?P<flags>[^)]*)\)\s+(?P<delim>NIL|[^\s]+)\s+(?P<name>.*)$", line)
+                if not m2:
+                    return ([], '/', '')
+                flags_str = m2.group('flags') or ''
+                delim = m2.group('delim')
+                name = m2.group('name').strip()
+            else:
+                flags_str = m.group('flags') or ''
+                delim = m.group('delim')
+                name = m.group('name').strip()
+
+            # Usuń otaczające cudzysłowy z nazwy jeśli są
+            if name.startswith('"') and name.endswith('"') and len(name) >= 2:
+                name = name[1:-1]
+            # Zamień escapeowane cudzysłowy
+            name = name.replace('\\"', '"')
+
+            # Delim może być NIL (brak hierarchii)
+            if delim.upper() == 'NIL':
+                delim = '/'
+
+            flags = [f for f in flags_str.split() if f]
+            return (flags, delim, name)
+        except Exception:
+            return ([], '/', '')
+
     def print_mailbox_structure(self, max_items: int = 500):
         """Wyświetla strukturę skrzynki IMAP (LIST) z wcięciami wg delimitera"""
         try:
@@ -296,29 +336,54 @@ Z poważaniem,
             if result != 'OK' or not data:
                 print("ℹ️ Nie udało się pobrać listy folderów (LIST)")
                 return
-            # Ustal delimiter z pierwszej pozycji jeśli dostępny
-            delim = '/'
-            try:
-                sample = data[0].decode()
-                parts = sample.split('"')
-                if len(parts) >= 3:
-                    delim = parts[1]
-            except Exception:
-                pass
-            folders = []
+
+            # Zbuduj listę ścieżek (podzielonych po delimiterze)
+            paths = []
             for raw in data:
                 if not raw:
                     continue
-                decoded = raw.decode(errors='ignore')
-                parts = decoded.split('"')
-                delim_char = parts[1] if len(parts) >= 3 else delim
-                name = parts[-2] if len(parts) >= 3 else decoded
-                depth = name.count(delim_char) if delim_char else 0
-                folders.append((name, depth))
-            print(f"\n📂 Struktura skrzynki ({len(folders)} folderów):")
-            for name, depth in folders[:max_items]:
-                indent = '  ' * depth
-                print(f"  {indent}• {name}")
+                _flags, delim_char, name = self._parse_list_line(raw)
+                if not name or name in ('.', '..'):
+                    continue
+                parts = name.split(delim_char) if delim_char else [name]
+                paths.append(tuple(parts))
+
+            # Usuń duplikaty i posortuj
+            unique_paths = sorted(set(paths), key=lambda t: [seg.lower() for seg in t])
+
+            # Zbuduj mapę dzieci
+            from collections import defaultdict
+            children = defaultdict(list)
+            for path in unique_paths:
+                parent = tuple()
+                for seg in path:
+                    if seg not in children[parent]:
+                        children[parent].append(seg)
+                    parent = parent + (seg,)
+
+            # Rekurencyjne wypisywanie z łącznikami drzewa
+            print(f"\n📂 Struktura skrzynki ({len(unique_paths)} folderów):")
+
+            printed = 0
+
+            def walk(parent, prefix):
+                nonlocal printed
+                segs = children.get(parent, [])
+                segs.sort(key=lambda s: s.lower())
+                for i, seg in enumerate(segs):
+                    is_last = (i == len(segs) - 1)
+                    branch = '└─' if is_last else '├─'
+                    print(f"  {prefix}{branch} {seg}")
+                    printed += 1
+                    if printed >= max_items:
+                        return
+                    child = parent + (seg,)
+                    next_prefix = prefix + ('   ' if is_last else '│  ')
+                    walk(child, next_prefix)
+                    if printed >= max_items:
+                        return
+
+            walk(tuple(), '')
         except Exception as e:
             print(f"ℹ️ Nie udało się wyświetlić struktury skrzynki: {e}")
 

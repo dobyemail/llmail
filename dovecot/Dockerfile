@@ -9,11 +9,9 @@ COPY dovecot.conf /etc/dovecot/dovecot.conf
 COPY users /etc/dovecot/users
 
 # Ustaw uprawnienia
-RUN chmod 600 /etc/dovecot/users
+## chmod niedostępny w bazowym obrazie – pomijamy na etapie build
 
-# Utwórz strukturę folderów
-RUN mkdir -p /var/mail/test@localhost/Maildir && \
-    chown -R 1000:1000 /var/mail
+## Tworzenie struktury katalogów i własności pozostawiamy runtime (start Dovecota)
 
 EXPOSE 143 993
 

@@ -298,6 +298,50 @@ class TestEmailBots:
         assert not any('Category_WithChild' in x and not x.endswith('Sub') for x in organizer_bot.imap.deleted)
         self.print_success("Empty Category folders are removed, others preserved")
 
+    def test_migrate_unsafe_category_folders_dry_run(self):
+        """Test: Migracja niebezpiecznych folderów tylko wypisuje w DRY-RUN i nie woła RENAME."""
+        self.print_test_header("Migrate Unsafe Folders - DRY-RUN")
+        from email_organizer import EmailOrganizer
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot', dry_run=True)
+        bot._get_hierarchy_delimiter = lambda: '.'
+        bot.get_folders = lambda: ['INBOX.Category_[alert]', 'INBOX.Category_Masz']
+        class DummyImap:
+            def __init__(self):
+                self.renamed = []
+            def rename(self, old, new):
+                self.renamed.append((old, new))
+                return ('OK', [b''])
+        bot.imap = DummyImap()
+        bot._migrate_unsafe_category_folders()
+        assert bot.imap.renamed == []
+        self.print_success("DRY-RUN migration does not call RENAME")
+
+    def test_migrate_unsafe_category_folders_rename(self):
+        """Test: Migracja niebezpiecznych folderów woła RENAME do bezpiecznej nazwy i subskrybuje nowy folder."""
+        self.print_test_header("Migrate Unsafe Folders - Rename")
+        from email_organizer import EmailOrganizer
+        bot = EmailOrganizer(email_address='test@localhost', password='x', imap_server='dovecot', dry_run=False)
+        bot._get_hierarchy_delimiter = lambda: '.'
+        bot.get_folders = lambda: ['INBOX.Category_[alert]', 'INBOX.Category_Masz']
+        class DummyImap:
+            def __init__(self):
+                self.renamed = []
+                self.subscribed = []
+            def rename(self, old, new):
+                self.renamed.append((old, new))
+                return ('OK', [b''])
+            def subscribe(self, mailbox):
+                self.subscribed.append(mailbox)
+                return ('OK', [b''])
+        bot.imap = DummyImap()
+        bot._migrate_unsafe_category_folders()
+        assert len(bot.imap.renamed) == 1
+        old, new = bot.imap.renamed[0]
+        assert old == 'INBOX.Category_[alert]'
+        assert new == 'INBOX.Category_alert' or new.startswith('INBOX.Category_alert_')
+        assert any('Category_alert' in s if isinstance(s, str) else False for s in bot.imap.subscribed)
+        self.print_success("Unsafe folder renamed and subscribed")
+
     def test_is_spam_sender_heuristics_only(self):
         """Test: Heurystyki nadawcy same w sobie mogą dać wynik spam."""
         self.print_test_header("Sender Heuristics Spam")

@@ -165,7 +165,18 @@ class EmailOrganizer:
         # Usuń delimiter hierarchii z komponentu (np. '.')
         if delim:
             cleaned = cleaned.replace(delim, '_')
+        # Zredukuj wielokrotne podkreślenia do jednego
+        cleaned = re.sub(r'_+', '_', cleaned)
         return cleaned or 'Category'
+
+    def _is_safe_category_segment(self, seg: str) -> bool:
+        """Zwraca True, jeśli segment kategorii zawiera wyłącznie dozwolone znaki.
+        Dopuszczalne: litery, cyfry, '.', '_', '-'
+        """
+        if not seg:
+            return False
+        allowed = set(string.ascii_letters + string.digits + '._-')
+        return all((c in allowed) for c in seg)
 
     def _encode_mailbox(self, name: str) -> str:
         """Zwraca nazwę folderu ograniczoną do ASCII (bezpieczną dla wielu serwerów IMAP).
@@ -346,8 +357,72 @@ class EmailOrganizer:
             # sprawdź ostatni segment
             last = f.split(delim)[-1] if delim else f
             if last.lower().startswith('category_'):
+                # pomiń niebezpieczne nazwy (np. nawiasy kwadratowe)
+                if not self._is_safe_category_segment(last):
+                    self.logger.debug(f"Pomijam niebezpieczny folder kategorii: {f}")
+                    continue
                 cat_folders.append(f)
         return cat_folders
+
+    def _migrate_unsafe_category_folders(self):
+        """Wyszukuje istniejące foldery kategorii z niedozwolonymi znakami i migruje je do bezpiecznych nazw.
+        Respektuje DRY-RUN (wtedy tylko wypisuje planowane zmiany)."""
+        try:
+            folders = self.get_folders()
+            if not folders:
+                return
+            delim = self._get_hierarchy_delimiter()
+            existing = set(folders)
+            for f in list(folders):
+                if not f:
+                    continue
+                low = f.lower()
+                if not low.startswith('inbox'):
+                    continue
+                last = f.split(delim)[-1] if delim else f
+                if not last.lower().startswith('category_'):
+                    continue
+                if self._is_safe_category_segment(last):
+                    continue  # już bezpieczny
+
+                # Wyznacz bezpieczną nazwę ostatniego segmentu
+                safe_last = self._sanitize_folder_component(last, delim)
+                if not safe_last.lower().startswith('category_'):
+                    safe_last = 'Category_' + safe_last
+                parent = delim.join(f.split(delim)[:-1]) if delim else ''
+                candidate = (parent + delim + safe_last) if parent else safe_last
+
+                # Zapewnij unikalność w przestrzeni istniejących folderów
+                base = candidate
+                n = 1
+                while candidate in existing:
+                    suffix = f"{safe_last}_{n}"
+                    candidate = (parent + delim + suffix) if parent else suffix
+                    n += 1
+
+                if self.dry_run:
+                    print(f"🧪 [DRY-RUN] Zmieniłbym nazwę folderu: {f} -> {candidate}")
+                    continue
+
+                try:
+                    old_mb = self._encode_mailbox(f)
+                    new_mb = self._encode_mailbox(candidate)
+                    typ, resp = self.imap.rename(old_mb, new_mb)
+                    if typ == 'OK':
+                        print(f"📂 Zmieniono nazwę folderu: {f} -> {candidate}")
+                        try:
+                            self.subscribe_folder(candidate)
+                        except Exception:
+                            pass
+                        existing.add(candidate)
+                        if f in existing:
+                            existing.remove(f)
+                    else:
+                        print(f"⚠️  RENAME nie powiodło się: {typ} {resp} dla {f} -> {candidate}")
+                except Exception as e:
+                    print(f"⚠️  Błąd RENAME {f} -> {candidate}: {e}")
+        except Exception as e:
+            print(f"ℹ️  Migracja folderów kategorii nie powiodła się: {e}")
 
     def _choose_existing_category_folder(self, cluster_emails: List[Dict]) -> str:
         """Wybiera najlepszy istniejący folder kategorii dla poda nej grupy.
@@ -825,6 +900,8 @@ class EmailOrganizer:
     def organize_mailbox(self, limit: int = 100, since_days: int = 7, since_date: str = None, folder: str = None, include_subfolders: bool = False):
         """Główna funkcja organizująca skrzynkę"""
         print("\n🔄 Rozpoczynam organizację skrzynki email...")
+        # Migruj istniejące niebezpieczne foldery kategorii do bezpiecznych nazw
+        self._migrate_unsafe_category_folders()
         # Usuń puste foldery Category* na starcie
         self._cleanup_empty_category_folders()
         # Pokaż strukturę skrzynki przed operacjami
