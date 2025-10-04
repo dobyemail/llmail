@@ -1,5 +1,5 @@
-# Dockerfile
-FROM python:3.10-slim
+# Multi-stage Dockerfile dla szybszego buildu
+FROM python:3.10-slim as base
 
 # Instalacja zależności systemowych
 RUN apt-get update && apt-get install -y \
@@ -8,29 +8,22 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Utworzenie katalogu roboczego
 WORKDIR /app
 
-# Kopiowanie plików wymagań (jeśli istnieje)
+# Stage dla podstawowych dependencji (cache'owane)
+FROM base as dependencies
+
+# Kopiuj requirements najpierw (dla lepszego cache'u)
 COPY requirements.txt* ./
 
-# Kopiowanie plików aplikacji
-COPY email_organizer.py .
-COPY email_responder.py .
-COPY email_generator.py .
-COPY test_suite.py .
-
-# Instalacja zależności Python
+# Instaluj podstawowe zależności (bez torch/transformers)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     numpy \
     scikit-learn \
-    transformers \
-    accelerate \
-    sentencepiece \
-    protobuf \
     python-dotenv \
     faker \
     lorem \
@@ -38,17 +31,32 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pytest-cov \
     colorama
 
-# Instalacja PyTorch CPU (osobno z dodatkowym indeksem)
+# Stage dla LLM dependencies (opcjonalne - tylko dla responder)
+FROM dependencies as llm-deps
+
+# Instaluj tylko dla email-responder (nie dla organizera/testów)
 RUN pip install --no-cache-dir \
+    transformers \
+    accelerate \
+    sentencepiece \
+    protobuf \
     torch --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Modele są pobierane dynamicznie w czasie uruchomienia w zależności od wyboru
+# Final stage - lightweight dla email-organizer
+FROM dependencies as final
+
+# Kopiuj pliki aplikacji
+COPY llmass_cli.py .
+COPY email_organizer.py .
+COPY email_responder.py .
+COPY email_generator.py .
+COPY test_suite.py .
 
 # Ustaw zmienne środowiskowe
 ENV PYTHONUNBUFFERED=1
 ENV TEST_EMAIL=test@localhost
 ENV TEST_PASSWORD=testpass123
-ENV IMAP_SERVER=mailhog
+ENV IMAP_SERVER=dovecot
 ENV SMTP_SERVER=mailhog
 
 # Skrypt startowy

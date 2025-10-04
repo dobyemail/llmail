@@ -98,11 +98,11 @@ services:
       - ./reports:/app/reports
     # command handled by entrypoint
 
-  # Bot odpowiadający na emaile
+  # Bot odpowiadający na emaile (z LLM dependencies)
   email-responder:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.responder
     container_name: email-responder-bot
     env_file:
       - .env

@@ -19,6 +19,15 @@ case $MODE in
         
     organizer)
         echo "📁 Running EMAIL ORGANIZER"
+        echo "Waiting for IMAP server to be ready..."
+        
+        # Czekaj na dovecot
+        until nc -z dovecot 143; do
+            echo "Waiting for dovecot:143..."
+            sleep 2
+        done
+        echo "✅ IMAP server ready"
+        
         ARGS="--email ${EMAIL_ADDRESS} --password ${EMAIL_PASSWORD} --server ${IMAP_SERVER}"
         if [ "${DRY_RUN}" = "true" ] || [ "${DRY_RUN}" = "1" ]; then
             ARGS="$ARGS --dry-run"
@@ -28,6 +37,15 @@ case $MODE in
         
     responder)
         echo "💬 Running EMAIL RESPONDER"
+        echo "Waiting for IMAP server to be ready..."
+        
+        # Czekaj na dovecot
+        until nc -z dovecot 143; do
+            echo "Waiting for dovecot:143..."
+            sleep 2
+        done
+        echo "✅ IMAP server ready"
+        
         ARGS="--email ${EMAIL_ADDRESS} --password ${EMAIL_PASSWORD} --server ${IMAP_SERVER} --smtp ${SMTP_SERVER} --model ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct} --limit ${LIMIT:-10}"
         if [ "${DRY_RUN}" = "true" ] || [ "${DRY_RUN}" = "1" ]; then
             ARGS="$ARGS --dry-run"

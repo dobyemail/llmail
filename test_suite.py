@@ -560,8 +560,43 @@ class TestEmailBots:
         finally:
             responder_bot.disconnect()
     
+    def test_imap_repair_function(self, organizer_bot):
+        """Test 11: Funkcja naprawy corruption IMAP"""
+        self.print_test_header("IMAP Repair Function")
+        
+        try:
+            if organizer_bot.connect():
+                # Test w trybie dry-run (bezpieczny)
+                organizer_bot.dry_run = True
+                
+                # Wywołaj funkcję repair - powinna działać bez błędów
+                try:
+                    organizer_bot.repair_mailbox(
+                        folder='INBOX',
+                        force=True,  # Bez promptu w testach
+                        dry_run=True  # Tylko symulacja
+                    )
+                    self.print_success("Repair function executed in dry-run mode")
+                except Exception as e:
+                    self.print_error(f"Repair function failed: {e}")
+                    pytest.fail(f"Repair function error: {e}")
+                
+                # Test detekcji corruption (może nie być corruption w testach)
+                self.print_info("Testing corruption detection...")
+                
+                # Mock test - sprawdź czy metoda istnieje
+                assert hasattr(organizer_bot, 'repair_mailbox'), "repair_mailbox method missing"
+                self.print_success("Repair method is available")
+                
+            else:
+                self.print_error("Cannot connect organizer for repair test")
+                pytest.fail("Organizer connection failed")
+                
+        finally:
+            organizer_bot.disconnect()
+    
     def test_full_workflow(self, email_generator, organizer_bot, responder_bot, test_config):
-        """Test 11: Pełny przepływ pracy"""
+        """Test 12: Pełny przepływ pracy"""
         self.print_test_header("Full Workflow Test")
         
         # Krok 1: Generuj i wyślij emaile

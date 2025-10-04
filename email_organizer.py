@@ -13,6 +13,7 @@ import argparse
 import os
 import sys
 import re
+import time
 import unicodedata
 import string
 from datetime import datetime, timedelta
@@ -64,6 +65,11 @@ class EmailOrganizer:
         # Minimalne wymagania treści do porównań
         self.content_min_chars = int(os.getenv('CONTENT_MIN_CHARS', '40'))
         self.content_min_tokens = int(os.getenv('CONTENT_MIN_TOKENS', '6'))
+        # Limity dla wykrywania aktywnych konwersacji
+        self.conversation_history_days = int(os.getenv('CONVERSATION_HISTORY_DAYS', '360'))
+        self.conversation_history_limit = int(os.getenv('CONVERSATION_HISTORY_LIMIT', '300'))
+        # Flag dla używania sekwencyjnych numerów zamiast UIDs (przy corruption)
+        self.use_sequence_numbers = False
         # Logger
         self.logger = logging.getLogger('email_organizer')
         level = getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper(), logging.INFO)
@@ -538,6 +544,10 @@ class EmailOrganizer:
     def _mark_inbox_like_spam(self, emails_data: List[Dict], spam_folder: str) -> Tuple[List[bytes], List[int]]:
         """Zwraca (uids_do_spamu, indices_do_usuniecia_z_emails_data) dla maili podobnych do SPAM/Kosz."""
         try:
+            # Jeśli brak emaili do sprawdzenia, zwróć puste
+            if not emails_data:
+                return ([], [])
+            
             # Zbierz teksty referencyjne ze SPAM i TRASH
             ref_texts: List[str] = []
             # SPAM
@@ -801,8 +811,12 @@ class EmailOrganizer:
     
     def _get_sent_drafts_message_ids(self) -> set:
         """
-        Pobiera Message-IDs wszystkich wiadomości z folderów Sent i Drafts.
+        Pobiera Message-IDs z folderów Sent i Drafts (z limitami czasowymi i ilościowymi).
         Używane do wykrywania aktywnych konwersacji.
+        
+        Limity:
+            - CONVERSATION_HISTORY_DAYS (domyślnie 360 dni)
+            - CONVERSATION_HISTORY_LIMIT (domyślnie 300 wiadomości na folder)
         
         Returns:
             Set Message-IDs z Sent i Drafts
@@ -820,16 +834,26 @@ class EmailOrganizer:
         if not folders_to_check:
             return message_ids
         
+        # Oblicz datę graniczną
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=self.conversation_history_days)
+        imap_since = cutoff_date.strftime('%d-%b-%Y')
+        
         # Przeszukaj każdy folder
         for folder in folders_to_check[:4]:  # Max 4 foldery (Sent, Drafts i ewentualne podkatalogi)
             try:
                 self.imap.select(folder, readonly=True)
-                result, data = self.imap.uid('SEARCH', None, 'ALL')
+                # Szukaj tylko z ostatnich N dni
+                result, data = self.imap.uid('SEARCH', None, 'SINCE', imap_since)
                 
                 if result != 'OK' or not data or not data[0]:
                     continue
                 
                 uids = data[0].split()
+                
+                # Ogranicz do ostatnich N wiadomości
+                if len(uids) > self.conversation_history_limit:
+                    uids = uids[-self.conversation_history_limit:]
                 
                 # Pobierz Message-ID z każdego emaila
                 for uid in uids:
@@ -1024,7 +1048,25 @@ class EmailOrganizer:
         # Analizuj wskazany folder
         selected_folder = folder or 'INBOX'
         self.logger.debug(f"Selecting folder: {selected_folder} (include_subfolders={include_subfolders})")
-        self.imap.select(selected_folder)
+        
+        # SELECT w trybie read-write (aby EXPUNGE działało)
+        result, data = self.imap.select(selected_folder, readonly=False)
+        if result != 'OK':
+            print(f"❌ Nie można otworzyć folderu {selected_folder}")
+            return
+        
+        # Wyczyść usunięte emaile przed rozpoczęciem (EXPUNGE)
+        try:
+            result = self.imap.expunge()
+            if result[0] == 'OK' and result[1] and result[1][0]:
+                expunged_count = len(result[1])
+                print(f"🧹 Usunięto {expunged_count} oznaczonych emaili")
+                self.logger.debug(f"Wykonano EXPUNGE - usunięto {expunged_count} emaili")
+            else:
+                self.logger.debug("EXPUNGE wykonano - brak emaili do usunięcia")
+        except Exception as e:
+            self.logger.warning(f"EXPUNGE nie powiodło się: {e}")
+        
         # Ustal kryteria czasu
         imap_since = None
         if since_date:
@@ -1037,18 +1079,216 @@ class EmailOrganizer:
             dt = datetime.now() - timedelta(days=since_days)
             imap_since = dt.strftime('%d-%b-%Y')
 
-        if imap_since:
-            print(f"⏱️  Filtr czasu: od {imap_since}, limit: {limit}")
-            result, data = self.imap.uid('SEARCH', None, 'ALL', 'SINCE', imap_since)
-        else:
+        print("🚨 WYKRYTO POWAŻNĄ CORRUPTION SKRZYNKI IMAP!")
+        print("")
+        print("Wszystkie UIDs w skrzynce są uszkodzone. To oznacza że:")
+        print("- SEARCH zwraca UIDs które nie istnieją fizycznie")
+        print("- FETCH nie może pobrać danych z tych UIDs")
+        print("- Skrzynka wymaga naprawy przez klienta email")
+        print("")
+        print("🔧 ZALECANE KROKI NAPRAWY:")
+        print("")
+        print("1. Otwórz skrzynkę w kliencie email (Thunderbird/Outlook)")
+        print("2. Zaznacz wszystkie emaile w INBOX (Ctrl+A)")
+        print("3. Wybierz 'Compact Folder' lub 'Expunge' w menu")
+        print("4. Lub przenieś wszystkie emaile do Archives i z powrotem")
+        print("5. Uruchom ponownie llmass clean")
+        print("")
+        print("🚫 llmass nie może automatycznie naprawić tej corruption")
+        print("   bez ryzyka utraty danych.")
+        print("")
+        return
+        
+    def repair_mailbox(self, folder: str = 'INBOX', force: bool = False, dry_run: bool = False):
+        """
+        Naprawia corruption UIDs w skrzynce IMAP poprzez bezpieczne przenoszenie emaili.
+        
+        Args:
+            folder: Folder do naprawy (domyślnie INBOX)
+            force: Wymusza naprawę bez potwierdzenia
+            dry_run: Tryb testowy (nie wykonuje zmian)
+        """
+        print("🔧 NAPRAWA CORRUPTION SKRZYNKI IMAP")
+        print("=" * 50)
+        print("")
+        
+        if not force and not dry_run:
+            print("⚠️  UWAGA: Ta operacja przeniesie wszystkie emaile do folderu tymczasowego")
+            print("   i z powrotem w celu regeneracji UIDs. Jest to bezpieczne ale:")
+            print("   - Zajmie trochę czasu")
+            print("   - Może zmienić kolejność emaili")
+            print("   - Zaleca się backup skrzynki przed naprawą")
+            print("")
+            
+            confirm = input("Czy chcesz kontynuować? (tak/nie): ").lower().strip()
+            if confirm not in ['tak', 'yes', 'y', 't']:
+                print("❌ Naprawa anulowana przez użytkownika")
+                return
+            print("")
+        
+        try:
+            # Krok 1: Sprawdź czy folder istnieje
+            print(f"📂 Sprawdzam folder: {folder}")
+            result, data = self.imap.select(folder, readonly=True)
+            if result != 'OK':
+                print(f"❌ Nie można otworzyć folderu {folder}")
+                return
+            
+            # Krok 2: Sprawdź corruption
+            print("🔍 Sprawdzam corruption UIDs...")
             result, data = self.imap.uid('SEARCH', None, 'ALL')
+            if result == 'OK' and data and data[0]:
+                uids = data[0].split()[:10]  # Test pierwszych 10 UIDs
+                corrupted_count = 0
+                
+                for uid in uids:
+                    result, test_data = self.imap.uid('FETCH', uid, '(FLAGS)')
+                    if result != 'OK' or not test_data or test_data == [None]:
+                        corrupted_count += 1
+                
+                corruption_ratio = corrupted_count / len(uids) if uids else 0
+                print(f"   Corruption ratio: {corruption_ratio:.1%} ({corrupted_count}/{len(uids)} UIDs)")
+                
+                if corruption_ratio < 0.5:
+                    print("✅ Skrzynka nie wymaga naprawy (corruption < 50%)")
+                    return
+            
+            # Krok 3: Utwórz folder tymczasowy
+            repair_folder = f"{folder}_REPAIR_TEMP_{int(time.time())}"
+            print(f"📁 Tworzę folder tymczasowy: {repair_folder}")
+            
+            if not dry_run:
+                try:
+                    self.create_folder(repair_folder)
+                except Exception as e:
+                    print(f"❌ Nie można utworzyć folderu tymczasowego: {e}")
+                    return
+            else:
+                print("🧪 [DRY-RUN] Utworzyłbym folder tymczasowy")
+            
+            # Krok 4: Przenieś wszystkie emaile sekwencyjnie
+            print(f"🔄 Przenoszę emaile z {folder} do {repair_folder}...")
+            
+            # Przełącz na tryb read-write
+            result, data = self.imap.select(folder, readonly=False)
+            if result != 'OK':
+                print(f"❌ Nie można otworzyć {folder} w trybie read-write")
+                return
+            
+            # Użyj sekwencyjnych numerów (nie UIDs)
+            result, data = self.imap.search(None, 'ALL')
+            if result == 'OK' and data and data[0]:
+                seq_nums = data[0].split()
+                total_emails = len(seq_nums)
+                print(f"   Znaleziono {total_emails} emaili do przeniesienia")
+                
+                if dry_run:
+                    print(f"🧪 [DRY-RUN] Przeniosłbym {total_emails} emaili")
+                else:
+                    # Przenoś po batch (50 naraz)
+                    batch_size = 50
+                    moved_count = 0
+                    
+                    for i in range(0, len(seq_nums), batch_size):
+                        batch = seq_nums[i:i+batch_size]
+                        batch_str = ','.join([num.decode() if isinstance(num, bytes) else str(num) for num in batch])
+                        
+                        try:
+                            # COPY + STORE \Deleted + EXPUNGE
+                            mailbox_encoded = self._encode_mailbox(repair_folder)
+                            self.imap.copy(batch_str, mailbox_encoded)
+                            self.imap.store(batch_str, '+FLAGS', '\\Deleted')
+                            self.imap.expunge()
+                            
+                            moved_count += len(batch)
+                            print(f"   Przeniesiono: {moved_count}/{total_emails} emaili", end='\r')
+                            
+                        except Exception as e:
+                            print(f"\n❌ Błąd podczas przenoszenia batch {i//batch_size + 1}: {e}")
+                            break
+                    
+                    print(f"\n✅ Przeniesiono {moved_count} emaili do folderu tymczasowego")
+            
+            # Krok 5: Przenieś z powrotem
+            print(f"🔄 Przenoszę emaile z powrotem z {repair_folder} do {folder}...")
+            
+            if not dry_run:
+                result, data = self.imap.select(repair_folder, readonly=False)
+                if result == 'OK':
+                    result, data = self.imap.search(None, 'ALL')
+                    if result == 'OK' and data and data[0]:
+                        seq_nums = data[0].split()
+                        
+                        # Przenoś z powrotem po batch
+                        moved_back = 0
+                        for i in range(0, len(seq_nums), batch_size):
+                            batch = seq_nums[i:i+batch_size]
+                            batch_str = ','.join([num.decode() if isinstance(num, bytes) else str(num) for num in batch])
+                            
+                            try:
+                                mailbox_encoded = self._encode_mailbox(folder)
+                                self.imap.copy(batch_str, mailbox_encoded)
+                                self.imap.store(batch_str, '+FLAGS', '\\Deleted')
+                                self.imap.expunge()
+                                
+                                moved_back += len(batch)
+                                print(f"   Przywrócono: {moved_back}/{len(seq_nums)} emaili", end='\r')
+                                
+                            except Exception as e:
+                                print(f"\n❌ Błąd podczas przywracania batch {i//batch_size + 1}: {e}")
+                                break
+                        
+                        print(f"\n✅ Przywrócono {moved_back} emaili do {folder}")
+            else:
+                print("🧪 [DRY-RUN] Przywróciłbym wszystkie emaile")
+            
+            # Krok 6: Usuń folder tymczasowy
+            print(f"🗑️  Usuwam folder tymczasowy: {repair_folder}")
+            if not dry_run:
+                try:
+                    self.imap.select()  # Deselect current folder
+                    self.imap.delete(self._encode_mailbox(repair_folder))
+                    print("✅ Folder tymczasowy usunięty")
+                except Exception as e:
+                    print(f"⚠️  Nie można usunąć folderu tymczasowego: {e}")
+                    print(f"   Możesz usunąć go ręcznie: {repair_folder}")
+            else:
+                print("🧪 [DRY-RUN] Usunąłbym folder tymczasowy")
+            
+            # Krok 7: Weryfikacja
+            print("🔍 Weryfikuję naprawę...")
+            if not dry_run:
+                result, data = self.imap.select(folder, readonly=True)
+                if result == 'OK':
+                    result, data = self.imap.uid('SEARCH', None, 'ALL')
+                    if result == 'OK' and data and data[0]:
+                        uids = data[0].split()[:10]
+                        working_count = 0
+                        
+                        for uid in uids:
+                            result, test_data = self.imap.uid('FETCH', uid, '(FLAGS)')
+                            if result == 'OK' and test_data and test_data != [None]:
+                                working_count += 1
+                        
+                        success_ratio = working_count / len(uids) if uids else 0
+                        print(f"   UIDs working: {success_ratio:.1%} ({working_count}/{len(uids)})")
+                        
+                        if success_ratio > 0.9:
+                            print("🎉 NAPRAWA ZAKOŃCZONA POMYŚLNIE!")
+                            print("   Skrzynka powinna teraz działać normalnie z llmass clean")
+                        else:
+                            print("⚠️  Naprawa częściowo udana. Możliwe że potrzebne są dodatkowe kroki.")
+            else:
+                print("🧪 [DRY-RUN] Zweryfikowałbym naprawę")
+            
+        except Exception as e:
+            print(f"❌ Błąd podczas naprawy: {e}")
+            import traceback
+            traceback.print_exc()
         
-        if result != 'OK':
-            print("❌ Błąd podczas pobierania emaili (UID SEARCH)")
-            return
-        
-        email_ids = data[0].split()  # UIDs
-        print(f"📧 Znaleziono {len(email_ids)} emaili w {selected_folder}")
+        print("")
+        print("=" * 50)
+        print("🔧 NAPRAWA ZAKOŃCZONA")
         
         # Pobierz Message-IDs z Sent i Drafts (do wykrywania aktywnych konwersacji)
         print("🔍 Sprawdzam aktywne konwersacje (Sent/Drafts)...")
@@ -1063,16 +1303,62 @@ class EmailOrganizer:
         active_conversation_count = 0
         skipped_low_text = 0
         
-        for idx, email_id in enumerate(email_ids[:limit], 1):
-            print(f"Analizuję email {idx}/{min(len(email_ids), limit)}...", end='\r')
+        # Kompensuj deleted emails - zwiększ limit aby dostać wystarczająco wiele valid emaili
+        processed_count = 0
+        target_count = limit
+        
+        for idx, email_id in enumerate(email_ids, 1):
+            # Zatrzymaj się gdy przetworzymy wystarczająco emaili lub skończą się emaile
+            if processed_count >= target_count:
+                break
+                
+            print(f"Analizuję email {idx}/{len(email_ids)} (przetworzono: {processed_count}/{target_count})...", end='\r')
             
-            result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
-            if result != 'OK':
+            try:
+                # Użyj FETCH lub UID FETCH w zależności od trybu
+                if hasattr(self, 'use_sequence_numbers') and self.use_sequence_numbers:
+                    # Konwertuj bytes na string dla IMAP FETCH
+                    seq_num = email_id.decode() if isinstance(email_id, bytes) else str(email_id)
+                    result, data = self.imap.fetch(seq_num, "(RFC822)")
+                    fetch_type = "FETCH(seq)"
+                else:
+                    result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
+                    fetch_type = "UID FETCH"
+                
+                # Debug pierwszych 5 emaili
+                if idx <= 5:
+                    self.logger.warning(f"Email {idx} ({fetch_type}={email_id}): result={result}, data_type={type(data)}, data_len={len(data) if data else 0}")
+                    if data and len(data) > 0:
+                        self.logger.warning(f"Email {idx}: data[0]_type={type(data[0])}, data[0]={data[0]}")
+                
+                if result != 'OK':
+                    self.logger.debug(f"{fetch_type} failed dla email {email_id}: {result}")
+                    continue
+                
+                # Sprawdź czy są dane (email może być usunięty ale nie expunged)
+                if not data or data == [None] or not data[0]:
+                    if idx <= 5:
+                        self.logger.warning(f"Email {idx}: Brak danych - data={data}")
+                    continue
+                
+                # Sprawdź czy dane są poprawne
+                if not isinstance(data[0], tuple) or len(data[0]) < 2:
+                    self.logger.debug(f"Nieprawidłowy format danych dla email {email_id}")
+                    continue
+                
+                raw_email = data[0][1]
+                if not isinstance(raw_email, bytes):
+                    self.logger.debug(f"Raw email nie jest bytes dla {email_id}")
+                    continue
+                
+                msg = email.message_from_bytes(raw_email)
+                email_content = self.get_email_content(msg)
+            except Exception as e:
+                self.logger.warning(f"Błąd podczas przetwarzania email {email_id}: {e}")
                 continue
             
-            raw_email = data[0][1]
-            msg = email.message_from_bytes(raw_email)
-            email_content = self.get_email_content(msg)
+            # Zlicz przetworzony email
+            processed_count += 1
             
             # Sprawdź czy to spam
             if self.is_spam(email_content):
@@ -1107,13 +1393,14 @@ class EmailOrganizer:
             email_content['id'] = email_id
             emails_data.append(email_content)
         
-        print(f"\n\n📊 Analiza zakończona:")
+        # Oblicz łączną liczbę przetworzonych
+        total_processed = len(spam_ids) + len(emails_data) + active_conversation_count + skipped_low_text
+        
+        print(f"\n\n📊 Analiza zakończona (przetworzone: {total_processed}/{min(len(email_ids), limit)} emaili):")
         print(f"   - Spam: {len(spam_ids)} emaili")
+        print(f"   - Aktywne konwersacje (pozostają w INBOX): {active_conversation_count} emaili")
+        print(f"   - Krótkie wiadomości (do ShortMessages): {skipped_low_text} emaili")
         print(f"   - Do kategoryzacji: {len(emails_data)} emaili")
-        if active_conversation_count:
-            print(f"   - Aktywne konwersacje (pozostają w INBOX): {active_conversation_count} emaili")
-        if skipped_low_text:
-            print(f"   - Krótkie wiadomości (do ShortMessages): {skipped_low_text} emaili")
         
         # Przenieś spam
         # Dodatkowe: wykryj podobne do SPAM/Kosz według podobieństwa
@@ -1232,6 +1519,10 @@ def main():
                         help='Folder do przetworzenia (domyślnie INBOX)')
     parser.add_argument('--include-subfolders', action='store_true',
                         help='Przetwarzaj również podfoldery wskazanego folderu (eksperymentalne)')
+    parser.add_argument('--repair', action='store_true',
+                        help='Napraw corruption UIDs w skrzynce IMAP')
+    parser.add_argument('--force', action='store_true',
+                        help='Wymusza naprawę bez potwierdzenia (tylko z --repair)')
     
     args = parser.parse_args()
 
@@ -1275,8 +1566,15 @@ def main():
     
     if bot.connect():
         try:
-            bot.organize_mailbox(limit=limit_arg, since_days=since_days_arg, since_date=since_date_arg,
-                                 folder=args.folder, include_subfolders=args.include_subfolders)
+            if args.repair:
+                # Tryb naprawy corruption
+                bot.repair_mailbox(folder=args.folder or 'INBOX', 
+                                   force=args.force, 
+                                   dry_run=args.dry_run)
+            else:
+                # Normalny tryb organizacji
+                bot.organize_mailbox(limit=limit_arg, since_days=since_days_arg, since_date=since_date_arg,
+                                     folder=args.folder, include_subfolders=args.include_subfolders)
         finally:
             bot.disconnect()
 
