@@ -125,41 +125,12 @@ def main():
 def run_clean(args):
     """Uruchom email organizer"""
     try:
-        from email_organizer import main as organizer_main
-    except ImportError:
-        print("❌ Nie można zaimportować email_organizer")
+        from llmass.organizer.app import run_clean_from_args
+    except Exception as e:
+        print(f"❌ Nie można uruchomić modułowego organizera: {e}")
         sys.exit(1)
-    
-    # Przekaż argumenty do email_organizer
-    sys.argv = ['email_organizer']
-    if args.email:
-        sys.argv.extend(['--email', args.email])
-    if args.password:
-        sys.argv.extend(['--password', args.password])
-    if args.server:
-        sys.argv.extend(['--server', args.server])
-    if args.dry_run:
-        sys.argv.append('--dry-run')
-    if args.limit:
-        sys.argv.extend(['--limit', str(args.limit)])
-    if args.since_days:
-        sys.argv.extend(['--since-days', str(args.since_days)])
-    if args.since_date:
-        sys.argv.extend(['--since-date', args.since_date])
-    if args.folder:
-        sys.argv.extend(['--folder', args.folder])
-    if args.include_subfolders:
-        sys.argv.append('--include-subfolders')
-    if args.similarity_threshold:
-        sys.argv.extend(['--similarity-threshold', str(args.similarity_threshold)])
-    if args.min_cluster_size:
-        sys.argv.extend(['--min-cluster-size', str(args.min_cluster_size)])
-    if args.min_cluster_fraction:
-        sys.argv.extend(['--min-cluster-fraction', str(args.min_cluster_fraction)])
-    if hasattr(args, 'verbose') and args.verbose:
-        sys.argv.append('--verbose')
-    
-    organizer_main()
+
+    run_clean_from_args(args)
 
 
 def run_write(args):
