@@ -24,6 +24,15 @@ All notable changes to this project will be documented in this file.
   - Checks Message-ID, In-Reply-To, and References headers
   - Prevents auto-categorization of ongoing email threads
   - Displays conversation details during processing
+  - **Performance optimized:** Now with time and count limits
+    - `CONVERSATION_HISTORY_DAYS=360` (check last 360 days only)
+    - `CONVERSATION_HISTORY_LIMIT=300` (max 300 messages per folder)
+- **IMAP Repair Function**: Added `llmass repair` command to fix corrupted IMAP mailboxes
+  - Automatically detects UID corruption (when SEARCH returns non-existent UIDs)
+  - Safely moves all emails to temporary folder and back to regenerate UIDs
+  - Batch processing (50 emails at a time) for large mailboxes
+  - Full dry-run support and safety confirmations
+  - Works with sequence numbers when UIDs are completely broken
 
 ### Fixed
 - **Virtual Environment Support**: `publish.sh` now activates venv if present
@@ -32,6 +41,14 @@ All notable changes to this project will be documented in this file.
 - **CUDA OOM Handling**: Simplified OOM recovery - now falls back to mock response instead of trying to move accelerate-dispatched models between devices
 - **Email Fetching**: Added try-except blocks and type checking for robust email retrieval
 - **Install Script**: Fixed venv corruption issues by cleaning old venv before creating new one
+- **Conversation Detection Performance**: Added time and count limits to prevent long scanning (360 days, 300 messages max)
+- **IMAP Data Validation**: Fixed `TypeError: 'NoneType' object is not subscriptable` when fetching emails
+- **Empty Categorization Queue**: Fixed crash when all emails are filtered out (active conversations/short messages) - `cosine_similarity` error
+- **Deleted Emails Handling**: Added EXPUNGE at start of organize_mailbox to clear deleted emails before processing
+- **Better IMAP Validation**: Improved detection of deleted-but-not-expunged emails (result='OK' but data is empty)
+- **Smart Email Processing**: System now automatically compensates for deleted emails by continuing to fetch until target limit is reached
+- **SEARCH NOT DELETED**: Changed IMAP SEARCH to exclude deleted emails (NOT DELETED flag)
+- **EXPUNGE Improvements**: SELECT folder in read-write mode (not readonly) to allow EXPUNGE to work properly, show count of expunged emails
 
 ## [1.1.1] - 2025-10-04
 

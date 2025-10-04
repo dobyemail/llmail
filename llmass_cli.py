@@ -8,7 +8,7 @@ Komendy:
   llmass test     - Uruchom testy
 """
 
-__version__ = "1.1.12"
+__version__ = "1.1.13"
 
 import sys
 import argparse
@@ -81,6 +81,19 @@ def main():
     write_parser.add_argument('--max-tokens', type=int, help='Maksymalna długość odpowiedzi')
     write_parser.add_argument('--offline', action='store_true', help='Tryb offline (mock responses)')
     
+    # === llmass repair ===
+    repair_parser = subparsers.add_parser(
+        'repair',
+        help='Napraw corruption skrzynki IMAP',
+        description='Automatyczna naprawa uszkodzonych UIDs w skrzynce IMAP'
+    )
+    repair_parser.add_argument('--email', help='Adres email')
+    repair_parser.add_argument('--password', help='Hasło')
+    repair_parser.add_argument('--server', help='Serwer IMAP')
+    repair_parser.add_argument('--folder', default='INBOX', help='Folder do naprawy')
+    repair_parser.add_argument('--dry-run', action='store_true', help='Tryb testowy (bez zmian)')
+    repair_parser.add_argument('--force', action='store_true', help='Wymusza naprawę bez potwierdzenia')
+    
     # === llmass test ===
     test_parser = subparsers.add_parser(
         'test',
@@ -99,6 +112,8 @@ def main():
         run_clean(args)
     elif args.command == 'write':
         run_write(args)
+    elif args.command == 'repair':
+        run_repair(args)
     elif args.command == 'test':
         run_test(args)
     else:
@@ -208,6 +223,38 @@ def run_generate(args):
         sys.argv.extend(['--to', args.to])
     
     generator_main()
+
+
+def run_repair(args):
+    """Uruchom naprawę corruption IMAP"""
+    try:
+        from email_organizer import main as organizer_main
+        import sys
+        
+        # Przekaż argumenty do email_organizer
+        original_argv = sys.argv.copy()
+        sys.argv = ['email_organizer', '--repair']
+        
+        if args.email:
+            sys.argv.extend(['--email', args.email])
+        if args.password:
+            sys.argv.extend(['--password', args.password])
+        if args.server:
+            sys.argv.extend(['--server', args.server])
+        if args.folder:
+            sys.argv.extend(['--folder', args.folder])
+        if args.dry_run:
+            sys.argv.append('--dry-run')
+        if args.force:
+            sys.argv.append('--force')
+        
+        organizer_main()
+        
+    except Exception as e:
+        print(f"❌ Błąd podczas naprawy: {e}")
+        sys.exit(1)
+    finally:
+        sys.argv = original_argv
 
 
 def run_test(args):

@@ -8,12 +8,21 @@ Inteligentny system automatyzacji poczty email z użyciem AI.
 
 **Pełna dokumentacja dostępna w katalogu [`docs/`](docs/)**
 
-- [Instalacja](docs/installation.md)
-- [Przewodnik szybkiego startu](docs/quickstart.md)
-- [Funkcje systemu](docs/features/)
-- [Architektura](docs/architecture/)
-- [Docker](docs/docker/)
-- [Konfiguracja](docs/configuration/)
+### Szybki start
+- **[Instalacja](docs/installation.md)** - Jak zainstalować llmass
+- **[Przewodnik szybkiego startu](docs/quickstart.md)** - Pierwsze kroki
+
+### Funkcje
+- **[Email Organizer](docs/features/email-organizer.md)** - Automatyczna kategoryzacja
+- **[Email Responder](docs/features/email-responder.md)** - Generowanie odpowiedzi AI
+- **[Aktywne konwersacje](docs/features/active-conversations.md)** - Wykrywanie wątków
+
+### Architektura i Docker
+- **[Przegląd architektury](docs/architecture/overview.md)** - Jak działa system
+- **[Docker - środowisko testowe](docs/docker/overview.md)** - Testy bez wpływu na prawdziwą skrzynkę
+
+### Konfiguracja
+- **[Zmienne środowiskowe](docs/configuration/env-variables.md)** - Wszystkie parametry
 
 ## 🚀 Funkcje
 
@@ -237,6 +246,24 @@ llmass write --temperature 0.7 --max-tokens 512
 # Tryb offline (mock responses, bez LLM)
 llmass write --offline --limit 10
 ```
+
+#### `llmass repair` - Napraw corruption skrzynki IMAP
+
+```bash
+# Test naprawy (dry-run)
+llmass repair --email twoj@email.com --password haslo --dry-run
+
+# Prawdziwa naprawa (z potwierdzeniem)
+llmass repair --email twoj@email.com --password haslo
+
+# Wymusza naprawę bez potwierdzenia
+llmass repair --email twoj@email.com --password haslo --force
+
+# Napraw konkretny folder
+llmass repair --email twoj@email.com --password haslo --folder INBOX
+```
+
+⚠️ **Uwaga:** Naprawa przenosi wszystkie emaile do folderu tymczasowego i z powrotem w celu regeneracji UIDs. Jest bezpieczna ale zaleca się backup skrzynki.
 
 #### `llmass test` - Uruchom testy
 
