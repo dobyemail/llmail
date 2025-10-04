@@ -4,24 +4,24 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="llmail",
-    version="1.1.1",
+    name="llmass",
+    version="1.1.4",
     author="Tom Sapletta",
     author_email="",
     description="AI-powered email management: auto-categorize, detect spam, and generate responses with LLM",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/dobyemail/llmail",
+    url="https://github.com/dobyemail/llmass",
     project_urls={
-        "Bug Tracker": "https://github.com/dobyemail/llmail/issues",
-        "Documentation": "https://github.com/dobyemail/llmail#readme",
+        "Bug Tracker": "https://github.com/dobyemail/llmass/issues",
+        "Documentation": "https://github.com/dobyemail/llmass#readme",
     },
     packages=find_packages(exclude=["tests", "*.tests", "*.tests.*", "tests.*"]),
     py_modules=[
         "email_organizer",
         "email_responder",
         "email_generator",
-        "llmail_cli",
+        "llmass_cli",
         "test_suite",
     ],
     install_requires=[
@@ -45,7 +45,7 @@ setup(
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "llmail=llmail_cli:main",
+            "llmass=llmass_cli:main",
             "email-organizer=email_organizer:main",
             "email-responder=email_responder:main",
         ],

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2025-10-04
+
+### Added
+- **Conversation History Context**: Email responder now fetches and includes previous sent messages to the same recipient in the LLM context
+  - Automatically searches Sent folder for previous correspondence
+  - Configurable via `CONVERSATION_HISTORY_LIMIT` (default: 3 messages)
+  - Provides better context-aware responses based on past communication
+
+### Fixed
+- **Docker Build**: Fixed PyPI index issue - separated PyTorch CPU installation with `--extra-index-url`
+- **Bash Script**: Fixed quote syntax error in `publish.sh` version detection
+
 ## [1.1.0] - 2025-10-04
 
 ### Added
