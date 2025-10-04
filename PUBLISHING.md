@@ -1,4 +1,4 @@
-# Publishing llmail to PyPI
+# Publishing llmass to PyPI
 
 ## Wymagania wstępne
 
@@ -36,8 +36,8 @@
 ### 1. Przygotowanie
 
 ```bash
-# Sprawdź wersję w llmail_cli.py i setup.py
-grep -n "__version__" llmail_cli.py
+# Sprawdź wersję w llmass_cli.py i setup.py
+grep -n "__version__" llmass_cli.py
 grep -n "version=" setup.py
 
 # Zaktualizuj CHANGELOG.md
@@ -69,8 +69,8 @@ python3 -m twine check dist/*
 python3 -m twine upload --repository testpypi dist/*
 
 # Testuj instalację
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ llmail
-llmail --help
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ llmass
+llmass --help
 ```
 
 ### 4. Publikacja na PyPI
@@ -79,11 +79,11 @@ llmail --help
 python3 -m twine upload dist/*
 
 # Sprawdź na PyPI
-# https://pypi.org/project/llmail/
+# https://pypi.org/project/llmass/
 
 # Testuj instalację
-pip install llmail
-llmail --help
+pip install llmass
+llmass --help
 ```
 
 ## Po publikacji
@@ -93,18 +93,18 @@ llmail --help
    # W czystym środowisku
    python3 -m venv test_env
    source test_env/bin/activate
-   pip install llmail
-   llmail --help
-   llmail clean --help
-   llmail write --help
+   pip install llmass
+   llmass --help
+   llmass clean --help
+   llmass write --help
    ```
 
 2. **Sprawdź dokumentację na PyPI**
-   - https://pypi.org/project/llmail/
+   - https://pypi.org/project/llmass/
    - Upewnij się, że README.md wyświetla się poprawnie
 
 3. **Zaktualizuj release notes na GitHub**
-   - https://github.com/dobyemail/llmail/releases
+   - https://github.com/dobyemail/llmass/releases
    - Skopiuj sekcję z CHANGELOG.md
 
 ## Troubleshooting
@@ -112,7 +112,7 @@ llmail --help
 ### Błąd: "File already exists"
 ```bash
 # Nie możesz ponownie uploadować tej samej wersji
-# Zwiększ wersję w llmail_cli.py i setup.py
+# Zwiększ wersję w llmass_cli.py i setup.py
 ```
 
 ### Błąd: "Invalid or non-existent authentication"
@@ -129,24 +129,24 @@ llmail --help
 
 ## Checklist przed publikacją
 
-- [ ] Wersja zaktualizowana w `llmail_cli.py.__version__`
+- [ ] Wersja zaktualizowana w `llmass_cli.py.__version__`
 - [ ] Wersja zaktualizowana w `setup.py`
 - [ ] `CHANGELOG.md` zaktualizowany
-- [ ] Testy przechodzą: `llmail test` lub `pytest`
+- [ ] Testy przechodzą: `llmass test` lub `pytest`
 - [ ] README.md jest aktualny
 - [ ] Git tag utworzony: `git tag v1.1.0`
 - [ ] Build paczki: `python3 -m build`
 - [ ] Sprawdzenie: `python3 -m twine check dist/*`
 - [ ] (Opcjonalnie) Test na TestPyPI
 - [ ] Upload na PyPI: `python3 -m twine upload dist/*`
-- [ ] Weryfikacja instalacji: `pip install llmail`
+- [ ] Weryfikacja instalacji: `pip install llmass`
 - [ ] GitHub release notes utworzone
 
 ## Aktualizacja istniejącej paczki
 
 ```bash
 # 1. Zwiększ wersję
-vim llmail_cli.py  # __version__ = "1.2.0"
+vim llmass_cli.py  # __version__ = "1.2.0"
 vim setup.py       # version="1.2.0"
 
 # 2. Zaktualizuj CHANGELOG

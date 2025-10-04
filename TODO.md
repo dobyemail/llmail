@@ -1,11 +1,11 @@
-# TODO – llmail (Email AI Bots)
+# TODO – llmass (Email AI Bots)
 
 Status na: 2025-10-04
 
 ## ✅ Ukończone (v1.1.0)
-- [x] CLI wrapper (`llmail clean/write/test`)
-- [x] Publikacja na PyPI jako pakiet `llmail`
-- [x] Makefile: `llmail-clean`, `llmail-write`, `llmail-test`, `publish`, `test-install`
+- [x] CLI wrapper (`llmass clean/write/test`)
+- [x] Publikacja na PyPI jako pakiet `llmass`
+- [x] Makefile: `llmass-clean`, `llmass-write`, `llmass-test`, `publish`, `test-install`
 - [x] Konfigurowalne podpisy email: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_COMPANY`
 - [x] Draft folder auto-detection: `DRAFTS_FOLDER`
 - [x] OOM protection: auto-clamp max_tokens, CPU fallback

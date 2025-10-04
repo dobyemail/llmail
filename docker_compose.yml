@@ -116,6 +116,7 @@ services:
       - SENDER_NAME=${SENDER_NAME:-AI Assistant}
       - SENDER_TITLE=${SENDER_TITLE:-}
       - SENDER_COMPANY=${SENDER_COMPANY:-}
+      - CONVERSATION_HISTORY_LIMIT=${CONVERSATION_HISTORY_LIMIT:-3}
       - MODE=responder
     networks:
       - email-test-network

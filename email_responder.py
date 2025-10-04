@@ -72,6 +72,9 @@ ZASADY:
 3. Bądź konkretny i pomocny
 4. Jeśli email zawiera pytania, odpowiedz na wszystkie
 5. Zakończ odpowiedź odpowiednim zwrotem grzecznościowym
+6. Weź pod uwagę wcześniejszą historię korespondencji z tym nadawcą
+
+{history}
 
 ORYGINALNY EMAIL:
 Od: {sender}
@@ -213,17 +216,127 @@ NAPISZ ODPOWIEDŹ:"""
         
         return email_data
     
+    def _fetch_conversation_history(self, sender_email: str, limit: int = 3) -> List[Dict]:
+        """
+        Pobiera historię wysłanych wiadomości do podanego nadawcy z folderu Sent.
+        
+        Args:
+            sender_email: Adres email nadawcy (do którego szukamy wysłanych wiadomości)
+            limit: Maksymalna liczba wiadomości do pobrania (domyślnie 3)
+        
+        Returns:
+            Lista słowników z danymi emaili (subject, body, date)
+        """
+        history = []
+        
+        try:
+            # Wyczyść adres email z nadawcy (usuń nazwę, zostaw sam email)
+            import re
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+', sender_email)
+            if email_match:
+                clean_email = email_match.group(0).lower()
+            else:
+                return history
+            
+            # Spróbuj znaleźć folder Sent
+            sent_folders = []
+            try:
+                result, folders_data = self.imap.list()
+                if result == 'OK' and folders_data:
+                    for folder_raw in folders_data:
+                        if not folder_raw:
+                            continue
+                        folder_str = folder_raw.decode(errors='ignore') if isinstance(folder_raw, bytes) else str(folder_raw)
+                        # Wyciągnij nazwę folderu
+                        parts = folder_str.split('"')
+                        if len(parts) >= 3:
+                            folder_name = parts[-2]
+                        else:
+                            folder_name = folder_str.split()[-1]
+                        
+                        # Sprawdź czy to folder Sent
+                        if any(keyword in folder_name.lower() for keyword in ['sent', 'wysłane', 'wyslane']):
+                            sent_folders.append(folder_name)
+            except Exception as e:
+                print(f"⚠️  Błąd podczas szukania folderu Sent: {e}")
+                return history
+            
+            if not sent_folders:
+                return history
+            
+            # Przeszukaj foldery Sent
+            for sent_folder in sent_folders[:2]:  # Sprawdź max 2 foldery
+                try:
+                    typ, _ = self.imap.select(sent_folder, readonly=True)
+                    if typ != 'OK':
+                        continue
+                    
+                    # Szukaj wiadomości do tego adresata
+                    search_criteria = f'(TO "{clean_email}")'
+                    result, data = self.imap.uid('SEARCH', None, search_criteria)
+                    
+                    if result != 'OK' or not data or not data[0]:
+                        continue
+                    
+                    uids = data[0].split()
+                    # Weź ostatnie N wiadomości
+                    recent_uids = uids[-limit:] if len(uids) > limit else uids
+                    
+                    for uid in reversed(recent_uids):  # Odwróć, aby mieć od najnowszych
+                        try:
+                            r, d = self.imap.uid('FETCH', uid, '(RFC822)')
+                            if r == 'OK' and d and d[0]:
+                                raw = d[0][1]
+                                msg = email.message_from_bytes(raw)
+                                content = self.get_email_content(msg)
+                                history.append({
+                                    'subject': content.get('subject', ''),
+                                    'body': content.get('body', ''),
+                                    'date': content.get('date', ''),
+                                    'to': content.get('to', '')
+                                })
+                        except Exception as e:
+                            continue
+                    
+                    if history:
+                        break  # Znaleziono historię, nie szukaj dalej
+                        
+                except Exception as e:
+                    continue
+            
+        except Exception as e:
+            print(f"⚠️  Błąd podczas pobierania historii korespondencji: {e}")
+        
+        return history
+    
     def generate_response_with_llm(self, email_content: Dict) -> str:
         """Generuje odpowiedź używając modelu LLM"""
         if not self.model:
             # Tryb mock gdy model nie jest załadowany
             return self._generate_mock_response(email_content)
         
+        # Pobierz historię korespondencji z tym nadawcą
+        sender_email = email_content.get('from', '')
+        history_limit = int(os.getenv('CONVERSATION_HISTORY_LIMIT', '3'))
+        history = self._fetch_conversation_history(sender_email, limit=history_limit)
+        
+        # Przygotuj sekcję historii dla prompta
+        history_text = ""
+        if history:
+            history_text = "HISTORIA KORESPONDENCJI Z TYM NADAWCĄ:\n"
+            for i, msg in enumerate(history, 1):
+                history_text += f"\nWiadomość {i}:\n"
+                history_text += f"Data: {msg.get('date', 'N/A')}\n"
+                history_text += f"Temat: {msg.get('subject', 'Brak tematu')}\n"
+                history_text += f"Treść: {msg.get('body', '')[:300]}...\n"
+            history_text += "\n"
+        
         # Przygotuj prompt
         prompt = self.prompt_template.format(
             sender=email_content.get('from', 'Nieznany'),
             subject=email_content.get('subject', 'Brak tematu'),
-            body=email_content.get('body', '')[:1000]  # Limit długości
+            body=email_content.get('body', '')[:1000],  # Limit długości
+            history=history_text
         )
         
         # Tokenizacja
@@ -254,35 +367,19 @@ NAPISZ ODPOWIEDŹ:"""
                     pad_token_id=self.tokenizer.eos_token_id
                 )
         except torch.cuda.OutOfMemoryError:
-            print("❗ CUDA OOM podczas generowania. Fallback na CPU z mniejszym limitem tokenów...")
+            print("❗ CUDA OOM podczas generowania. Używam mock response...")
             try:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 gc.collect()
             except Exception:
                 pass
-            try:
-                # Fallback na CPU
-                self.model = self.model.to("cpu")
-                self.device = "cpu"
-                # Ponowna tokenizacja na CPU
-                inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-                attention_mask = inputs.get("attention_mask", torch.ones_like(inputs["input_ids"]))
-                max_new_cpu = min(max_new, 256)
-                with torch.no_grad():
-                    outputs = self.model.generate(
-                        inputs.input_ids,
-                        attention_mask=attention_mask,
-                        max_new_tokens=max_new_cpu,
-                        temperature=self.generation_params['temperature'],
-                        top_p=self.generation_params['top_p'],
-                        do_sample=self.generation_params['do_sample'],
-                        repetition_penalty=self.generation_params['repetition_penalty'],
-                        pad_token_id=self.tokenizer.eos_token_id
-                    )
-            except Exception:
-                # Ostateczny fallback – mock
-                return self._generate_mock_response(email_content)
+            # Nie możemy przenosić modelu załadowanego przez accelerate między urządzeniami
+            # Fallback bezpośrednio na mock response
+            return self._generate_mock_response(email_content)
+        except Exception as e:
+            print(f"❗ Błąd podczas generowania: {e}")
+            return self._generate_mock_response(email_content)
 
         # Dekodowanie odpowiedzi
         response = self.tokenizer.decode(
@@ -541,13 +638,29 @@ Jeśli potrzebujesz dodatkowych informacji, proszę daj mi znać.
             print(f"\n--- Email {idx}/{len(email_ids)} ---")
             
             # Pobierz email (UID FETCH)
-            result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
-            if result != 'OK':
+            try:
+                result, data = self.imap.uid('FETCH', email_id, "(RFC822)")
+                if result != 'OK' or not data or not data[0]:
+                    print("⚠️  Nie udało się pobrać emaila, pomijam...")
+                    continue
+                
+                # Sprawdź format danych
+                if isinstance(data[0], tuple) and len(data[0]) > 1:
+                    raw_email = data[0][1]
+                else:
+                    print("⚠️  Nieprawidłowy format danych IMAP, pomijam...")
+                    continue
+                
+                # Upewnij się że to bytes
+                if not isinstance(raw_email, bytes):
+                    print(f"⚠️  Oczekiwano bytes, otrzymano {type(raw_email)}, pomijam...")
+                    continue
+                
+                msg = email.message_from_bytes(raw_email)
+                email_content = self.get_email_content(msg)
+            except Exception as e:
+                print(f"⚠️  Błąd podczas pobierania emaila: {e}")
                 continue
-            
-            raw_email = data[0][1]
-            msg = email.message_from_bytes(raw_email)
-            email_content = self.get_email_content(msg)
             
             print(f"📩 Od: {email_content.get('from', 'Nieznany')[:50]}")
             print(f"📋 Temat: {email_content.get('subject', 'Brak tematu')[:50]}")

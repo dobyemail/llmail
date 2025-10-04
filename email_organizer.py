@@ -678,6 +678,9 @@ class EmailOrganizer:
             'from': '',
             'body': '',
             'date': '',
+            'message_id': '',
+            'in_reply_to': '',
+            'references': '',
         }
         
         # Pobierz temat
@@ -693,6 +696,11 @@ class EmailOrganizer:
         
         # Pobierz datę
         email_data['date'] = msg['Date']
+        
+        # Pobierz Message-ID i threading headers
+        email_data['message_id'] = msg.get('Message-ID', '')
+        email_data['in_reply_to'] = msg.get('In-Reply-To', '')
+        email_data['references'] = msg.get('References', '')
         
         # Pobierz treść
         if msg.is_multipart():
@@ -790,6 +798,104 @@ class EmailOrganizer:
             return False
         except Exception:
             return False
+    
+    def _get_sent_drafts_message_ids(self) -> set:
+        """
+        Pobiera Message-IDs wszystkich wiadomości z folderów Sent i Drafts.
+        Używane do wykrywania aktywnych konwersacji.
+        
+        Returns:
+            Set Message-IDs z Sent i Drafts
+        """
+        message_ids = set()
+        
+        # Znajdź foldery Sent i Drafts
+        folders_to_check = []
+        all_folders = self.get_folders()
+        for folder_name in all_folders:
+            folder_lower = folder_name.lower()
+            if any(keyword in folder_lower for keyword in ['sent', 'wysłane', 'wyslane', 'drafts', 'draft', 'robocze']):
+                folders_to_check.append(folder_name)
+        
+        if not folders_to_check:
+            return message_ids
+        
+        # Przeszukaj każdy folder
+        for folder in folders_to_check[:4]:  # Max 4 foldery (Sent, Drafts i ewentualne podkatalogi)
+            try:
+                self.imap.select(folder, readonly=True)
+                result, data = self.imap.uid('SEARCH', None, 'ALL')
+                
+                if result != 'OK' or not data or not data[0]:
+                    continue
+                
+                uids = data[0].split()
+                
+                # Pobierz Message-ID z każdego emaila
+                for uid in uids:
+                    try:
+                        # Pobierz tylko nagłówki (szybsze niż cały email)
+                        r, d = self.imap.uid('FETCH', uid, '(BODY[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)])')
+                        if r == 'OK' and d and d[0]:
+                            header_data = d[0][1]
+                            if isinstance(header_data, bytes):
+                                msg = email.message_from_bytes(header_data)
+                                msg_id = msg.get('Message-ID', '').strip()
+                                if msg_id:
+                                    message_ids.add(msg_id)
+                                # Dodaj też In-Reply-To i References (nasze odpowiedzi na inne emaile)
+                                in_reply = msg.get('In-Reply-To', '').strip()
+                                if in_reply:
+                                    message_ids.add(in_reply)
+                                refs = msg.get('References', '').strip()
+                                if refs:
+                                    # References może zawierać wiele ID oddzielonych spacjami
+                                    for ref_id in refs.split():
+                                        if ref_id.strip():
+                                            message_ids.add(ref_id.strip())
+                    except Exception:
+                        continue
+                        
+            except Exception as e:
+                continue
+        
+        return message_ids
+    
+    def _is_active_conversation(self, email_content: Dict, sent_drafts_ids: set) -> bool:
+        """
+        Sprawdza czy email jest częścią aktywnej konwersacji (był już wysłany reply lub draft).
+        
+        Args:
+            email_content: Słownik z danymi emaila
+            sent_drafts_ids: Set Message-IDs z Sent i Drafts
+        
+        Returns:
+            True jeśli email jest częścią aktywnej konwersacji
+        """
+        if not sent_drafts_ids:
+            return False
+        
+        msg_id = email_content.get('message_id', '').strip()
+        in_reply_to = email_content.get('in_reply_to', '').strip()
+        references = email_content.get('references', '').strip()
+        
+        # Sprawdź czy Message-ID tego emaila jest w naszych odpowiedziach
+        # (ktoś odpowiedział na email, na który my odpowiedzieliśmy)
+        if msg_id and msg_id in sent_drafts_ids:
+            return True
+        
+        # Sprawdź czy In-Reply-To tego emaila odnosi się do naszej wiadomości
+        # (ten email to odpowiedź na naszą wiadomość)
+        if in_reply_to and in_reply_to in sent_drafts_ids:
+            return True
+        
+        # Sprawdź References (łańcuch konwersacji)
+        if references:
+            for ref_id in references.split():
+                if ref_id.strip() in sent_drafts_ids:
+                    return True
+        
+        return False
     
     def categorize_emails(self, emails: List[Dict]) -> Dict[str, List[int]]:
         """Kategoryzuje emaile używając klasteryzacji"""
@@ -944,9 +1050,17 @@ class EmailOrganizer:
         email_ids = data[0].split()  # UIDs
         print(f"📧 Znaleziono {len(email_ids)} emaili w {selected_folder}")
         
+        # Pobierz Message-IDs z Sent i Drafts (do wykrywania aktywnych konwersacji)
+        print("🔍 Sprawdzam aktywne konwersacje (Sent/Drafts)...")
+        sent_drafts_ids = self._get_sent_drafts_message_ids()
+        if sent_drafts_ids:
+            print(f"   Znaleziono {len(sent_drafts_ids)} wiadomości w aktywnych konwersacjach")
+        
         # Pobierz i analizuj emaile
         emails_data = []
         spam_ids = []
+        short_message_ids = []
+        active_conversation_count = 0
         skipped_low_text = 0
         
         for idx, email_id in enumerate(email_ids[:limit], 1):
@@ -966,9 +1080,27 @@ class EmailOrganizer:
                 print(f"\n🚫 Wykryto SPAM: {email_content.get('subject', 'Brak tematu')[:50]}")
                 continue
             
-            # Jeśli mało treści, pomiń z kategoryzacji (nie porównuj, nie przenoś)
+            # Sprawdź czy to aktywna konwersacja (była już odpowiedź lub draft)
+            if self._is_active_conversation(email_content, sent_drafts_ids):
+                subject = email_content.get('subject', 'Brak tematu')[:60]
+                sender = email_content.get('from', 'Nieznany')[:40]
+                print(f"\n💬 Aktywna konwersacja (pozostaje w INBOX):")
+                print(f"   Od: {sender}")
+                print(f"   Temat: {subject}")
+                active_conversation_count += 1
+                continue
+            
+            # Jeśli mało treści, przenieś do folderu ShortMessages
             if not self._has_sufficient_text(email_content):
-                print("\nℹ️ Pomijam wiadomość (za mało tekstu do porównań)")
+                short_message_ids.append(email_id)
+                subject = email_content.get('subject', 'Brak tematu')[:60]
+                sender = email_content.get('from', 'Nieznany')[:40]
+                body_preview = email_content.get('body', '')[:100].replace('\n', ' ').strip()
+                print(f"\n📭 Krótka wiadomość:")
+                print(f"   Od: {sender}")
+                print(f"   Temat: {subject}")
+                if body_preview:
+                    print(f"   Treść: {body_preview}...")
                 skipped_low_text += 1
                 continue
 
@@ -978,8 +1110,10 @@ class EmailOrganizer:
         print(f"\n\n📊 Analiza zakończona:")
         print(f"   - Spam: {len(spam_ids)} emaili")
         print(f"   - Do kategoryzacji: {len(emails_data)} emaili")
+        if active_conversation_count:
+            print(f"   - Aktywne konwersacje (pozostają w INBOX): {active_conversation_count} emaili")
         if skipped_low_text:
-            print(f"   - Pominięte (za mało tekstu): {skipped_low_text} emaili")
+            print(f"   - Krótkie wiadomości (do ShortMessages): {skipped_low_text} emaili")
         
         # Przenieś spam
         # Dodatkowe: wykryj podobne do SPAM/Kosz według podobieństwa
@@ -997,6 +1131,25 @@ class EmailOrganizer:
         if spam_ids:
             print(f"✅ Przeniesiono {len(spam_ids)} emaili do folderu SPAM")
             # Upewnij się, że usunięte wiadomości zostały wyczyszczone ze źródła
+            if not self.dry_run:
+                try:
+                    self.imap.expunge()
+                except Exception as e:
+                    print(f"⚠️  EXPUNGE błąd: {e}")
+        
+        # Przenieś krótkie wiadomości do osobnego folderu
+        if short_message_ids:
+            short_folder = f"{selected_folder}.ShortMessages"
+            # Utwórz folder jeśli nie istnieje
+            all_folders = self.get_folders()
+            if short_folder not in all_folders:
+                print(f"\n📁 Tworzę folder: {short_folder}")
+                self.create_folder(short_folder)
+            
+            for email_id in short_message_ids:
+                self.move_email(email_id, short_folder)
+            
+            print(f"✅ Przeniesiono {len(short_message_ids)} krótkich wiadomości do folderu ShortMessages")
             if not self.dry_run:
                 try:
                     self.imap.expunge()

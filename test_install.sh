@@ -2,7 +2,7 @@
 # Szybki test instalacji lokalnej przed publikacją
 set -e
 
-echo "🧪 Testowanie instalacji lokalnej llmail"
+echo "🧪 Testowanie instalacji lokalnej llmass"
 echo ""
 
 # Sprawdź czy jesteśmy w właściwym katalogu
@@ -18,7 +18,7 @@ python3 -m venv $TEST_ENV
 source $TEST_ENV/bin/activate
 
 # Zainstaluj lokalnie
-echo "📥 Instaluję llmail lokalnie..."
+echo "📥 Instaluję llmass lokalnie..."
 pip install --upgrade pip setuptools wheel
 pip install -e .
 
@@ -27,20 +27,20 @@ echo ""
 echo "✅ Testowanie komend CLI:"
 echo ""
 
-echo "1️⃣ llmail --help"
-llmail --help
+echo "1️⃣ llmass --help"
+llmass --help
 echo ""
 
-echo "2️⃣ llmail clean --help"
-llmail clean --help
+echo "2️⃣ llmass clean --help"
+llmass clean --help
 echo ""
 
-echo "3️⃣ llmail write --help"
-llmail write --help
+echo "3️⃣ llmass write --help"
+llmass write --help
 echo ""
 
-echo "4️⃣ llmail test --help"
-llmail test --help
+echo "4️⃣ llmass test --help"
+llmass test --help
 echo ""
 
 echo "5️⃣ Backwards compatibility: email-organizer --help"

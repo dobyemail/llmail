@@ -15,4 +15,4 @@ recursive-exclude * *.py[co]
 recursive-exclude .git *
 recursive-exclude .idea *
 recursive-exclude venv *
-recursive-exclude llmail.egg-info *
+recursive-exclude llmass.egg-info *

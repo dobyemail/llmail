@@ -1,20 +1,20 @@
-# Instalacja llmail
+# Instalacja llmass
 
 ## Szybka instalacja (PyPI)
 
 ```bash
-pip install llmail
+pip install llmass
 ```
 
 ## Weryfikacja instalacji
 
 ```bash
-llmail --help
+llmass --help
 ```
 
 Powinieneś zobaczyć:
 ```
-usage: llmail [-h] {clean,write,test} ...
+usage: llmass [-h] {clean,write,test} ...
 
 AI-powered email management toolkit
 
@@ -41,31 +41,31 @@ IMAP_SERVER=imap.gmail.com
 
 ```bash
 # Tryb dry-run (bez zmian)
-llmail clean --dry-run --limit 10
+llmass clean --dry-run --limit 10
 ```
 
 ### 3. Organizacja emaili
 
 ```bash
 # Kategoryzuj ostatnie 100 emaili z ostatnich 7 dni
-llmail clean --limit 100 --since-days 7
+llmass clean --limit 100 --since-days 7
 ```
 
 ### 4. Generowanie odpowiedzi (wymaga GPU lub dużo RAM)
 
 ```bash
 # Tryb offline (mock responses)
-llmail write --offline --limit 5
+llmass write --offline --limit 5
 
 # Z prawdziwym LLM (wymaga GPU)
-llmail write --limit 5 --max-tokens 512
+llmass write --limit 5 --max-tokens 512
 ```
 
 ## Instalacja dla deweloperów
 
 ```bash
-git clone https://github.com/dobyemail/llmail.git
-cd llmail
+git clone https://github.com/dobyemail/llmass.git
+cd llmass
 python3 -m venv venv
 source venv/bin/activate
 pip install -e ".[dev]"
@@ -73,12 +73,12 @@ pip install -e ".[dev]"
 
 ## Wymagania systemowe
 
-### Minimalne (llmail clean)
+### Minimalne (llmass clean)
 - Python 3.8+
 - 1 GB RAM
 - Połączenie IMAP
 
-### Rekomendowane (llmail write)
+### Rekomendowane (llmass write)
 - Python 3.10+
 - 8 GB RAM (CPU) lub 6 GB VRAM (GPU)
 - Połączenie IMAP/SMTP
@@ -134,8 +134,8 @@ SENDER_COMPANY=Twoja Firma Sp. z o.o.
 
 ```bash
 pip install --upgrade pip
-pip uninstall llmail
-pip install llmail
+pip uninstall llmass
+pip install llmass
 ```
 
 ### Brak połączenia IMAP
@@ -144,29 +144,29 @@ pip install llmail
 - Dla Gmail użyj hasła aplikacji (nie zwykłego hasła)
 - Sprawdź firewall/antywirus
 
-### Brak pamięci (OOM) podczas llmail write
+### Brak pamięci (OOM) podczas llmass write
 
 ```bash
 # Ogranicz max_tokens
-llmail write --max-tokens 256
+llmass write --max-tokens 256
 
 # Lub użyj trybu offline
-llmail write --offline
+llmass write --offline
 ```
 
 ## Aktualizacja
 
 ```bash
-pip install --upgrade llmail
+pip install --upgrade llmass
 ```
 
 ## Deinstalacja
 
 ```bash
-pip uninstall llmail
+pip uninstall llmass
 ```
 
 ## Pomoc
 
-- GitHub Issues: https://github.com/dobyemail/llmail/issues
-- Dokumentacja: https://github.com/dobyemail/llmail#readme
+- GitHub Issues: https://github.com/dobyemail/llmass/issues
+- Dokumentacja: https://github.com/dobyemail/llmass#readme
