@@ -2,6 +2,8 @@
 
 Zestaw botów AI do automatycznego zarządzania pocztą email.
 
+![img.png](img.png)
+
 ## 🚀 Funkcje
 
 ### Email Organizer Bot
@@ -312,12 +314,13 @@ CONTENT_MIN_CHARS=40
 CONTENT_MIN_TOKENS=6
 ```
 
-#### Email Responder - podpis w odpowiedziach
+#### Email Responder - podpis i historia konwersacji
 ```
-DRAFTS_FOLDER=INBOX.Drafts     # Folder dla wersji roboczych (auto-detect jeśli brak)
-SENDER_NAME=Jan Kowalski        # Imię i nazwisko w podpisie
-SENDER_TITLE=Asystent AI        # Tytuł/stanowisko (opcjonalnie)
-SENDER_COMPANY=Twoja Firma      # Nazwa firmy (opcjonalnie)
+DRAFTS_FOLDER=INBOX.Drafts            # Folder dla wersji roboczych (auto-detect jeśli brak)
+SENDER_NAME=Jan Kowalski               # Imię i nazwisko w podpisie
+SENDER_TITLE=Asystent AI               # Tytuł/stanowisko (opcjonalnie)
+SENDER_COMPANY=Twoja Firma             # Nazwa firmy (opcjonalnie)
+CONVERSATION_HISTORY_LIMIT=3           # Liczba wcześniejszych wiadomości w kontekście (domyślnie: 3)
 ```
 
 #### Logowanie i tryb testowy
@@ -401,6 +404,7 @@ Domyślnie używamy: **Qwen 2.5 7B Instruct**.
 - `SENDER_NAME` (ENV): Imię i nazwisko w podpisie, domyślnie login email
 - `SENDER_TITLE` (ENV): Tytuł/stanowisko w podpisie (opcjonalny)
 - `SENDER_COMPANY` (ENV): Nazwa firmy w podpisie (opcjonalny)
+- `CONVERSATION_HISTORY_LIMIT` (ENV): Liczba wcześniejszych wiadomości w kontekście, domyślnie `3`
 
 ## 🧪 Funkcje testowania
 

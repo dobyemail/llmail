@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.5] - 2025-10-04
+
+### Changed
+- **Package Renamed**: `llmail` → `llmass` (LLM Mail Automation System)
+  - All CLI commands now use `llmass` prefix
+  - Entry point changed from `llmail` to `llmass`
+  - GitHub repository and PyPI package renamed
+- **Automated Publishing**: `make publish` now automatically:
+  - Increments patch version (no prompts)
+  - Runs tests (auto-installs pytest if needed)
+  - Commits changes to git
+  - Creates git tag
+  - Pushes to origin main
+  - Uploads to PyPI via twine
+- **Improved Test Integration**: Auto-installs pytest before running tests
+
+### Fixed
+- **Virtual Environment Support**: `publish.sh` now activates venv if present
+- **System Package Manager Conflicts**: Fallback to `--break-system-packages` when needed
+
 ## [1.1.1] - 2025-10-04
 
 ### Added

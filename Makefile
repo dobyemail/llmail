@@ -1,5 +1,5 @@
 
-.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog status report generate-emails organize respond llmail-generate llmail-clean llmail-write llmail-test publish test-install
+.PHONY: help build up down test clean logs shell install test-quick logs-organizer logs-responder shell-mailhog status report generate-emails organize respond llmass-generate llmass-clean llmass-write llmass-test publish test-install
 
 # Docker Compose configuration
 COMPOSE_FILE := docker_compose.yml
@@ -33,9 +33,9 @@ help: ## Wyświetl pomoc
 	@echo "  make build             # Zbuduj obrazy Docker"
 	@echo "  make test              # Uruchom pełne testy"
 	@echo "  make install           # Zainstaluj lokalnie (venv + pip install)"
-	@echo "  make llmail-generate   # Uruchom llmail generate (lokalnie)"
-	@echo "  make llmail-clean      # Uruchom llmail clean (lokalnie)"
-	@echo "  make llmail-write      # Uruchom llmail write (lokalnie)"
+	@echo "  make llmass-generate   # Uruchom llmass generate (lokalnie)"
+	@echo "  make llmass-clean      # Uruchom llmass clean (lokalnie)"
+	@echo "  make llmass-write      # Uruchom llmass write (lokalnie)"
 	@echo "  make publish           # Zbuduj paczkę dla PyPI"
 	@echo "  make logs              # Pokaż logi"
 
@@ -119,42 +119,42 @@ respond: ## Uruchom tylko respondera
 	$(DC) -f $(COMPOSE_FILE) run --rm -e MODEL_NAME="$(MODEL)" email-responder
 
 # ============================================
-# llmail CLI commands (lokalnie, nie Docker)
+# llmass CLI commands (lokalnie, nie Docker)
 # ============================================
 
-llmail-generate: ## Uruchom llmail generate (lokalnie)
-	@echo "$(GREEN)📧 Running llmail generate...$(NC)"
-	@if command -v llmail >/dev/null 2>&1; then \
-		llmail generate --num-emails 50 --spam-ratio 0.2; \
+llmass-generate: ## Uruchom llmass generate (lokalnie)
+	@echo "$(GREEN)📧 Running llmass generate...$(NC)"
+	@if command -v llmass >/dev/null 2>&1; then \
+		llmass generate --num-emails 50 --spam-ratio 0.2; \
 	else \
-		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
 		exit 1; \
 	fi
 
-llmail-clean: ## Uruchom llmail clean (lokalnie)
-	@echo "$(GREEN)🧹 Running llmail clean...$(NC)"
-	@if command -v llmail >/dev/null 2>&1; then \
-		llmail clean --limit 100 --since-days 7; \
+llmass-clean: ## Uruchom llmass clean (lokalnie)
+	@echo "$(GREEN)🧹 Running llmass clean...$(NC)"
+	@if command -v llmass >/dev/null 2>&1; then \
+		llmass clean --limit 100 --since-days 7; \
 	else \
-		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
 		exit 1; \
 	fi
 
-llmail-write: ## Uruchom llmail write (lokalnie)
-	@echo "$(GREEN)✍️  Running llmail write...$(NC)"
-	@if command -v llmail >/dev/null 2>&1; then \
-		llmail write --offline --limit 5; \
+llmass-write: ## Uruchom llmass write (lokalnie)
+	@echo "$(GREEN)✍️  Running llmass write...$(NC)"
+	@if command -v llmass >/dev/null 2>&1; then \
+		llmass write --offline --limit 5; \
 	else \
-		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
 		exit 1; \
 	fi
 
-llmail-test: ## Uruchom llmail test (lokalnie)
-	@echo "$(YELLOW)🧪 Running llmail test...$(NC)"
-	@if command -v llmail >/dev/null 2>&1; then \
-		llmail test --verbose; \
+llmass-test: ## Uruchom llmass test (lokalnie)
+	@echo "$(YELLOW)🧪 Running llmass test...$(NC)"
+	@if command -v llmass >/dev/null 2>&1; then \
+		llmass test --verbose; \
 	else \
-		echo "$(RED)❌ llmail nie jest zainstalowane. Uruchom: make install$(NC)"; \
+		echo "$(RED)❌ llmass nie jest zainstalowane. Uruchom: make install$(NC)"; \
 		exit 1; \
 	fi
 
