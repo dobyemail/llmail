@@ -1,8 +1,19 @@
-# Email AI Bots 🤖📧
+# llmass - LLM Mail Automation System 🤖📧
 
-Zestaw botów AI do automatycznego zarządzania pocztą email.
+Inteligentny system automatyzacji poczty email z użyciem AI.
 
 ![img.png](img.png)
+
+## 📚 Dokumentacja
+
+**Pełna dokumentacja dostępna w katalogu [`docs/`](docs/)**
+
+- [Instalacja](docs/installation.md)
+- [Przewodnik szybkiego startu](docs/quickstart.md)
+- [Funkcje systemu](docs/features/)
+- [Architektura](docs/architecture/)
+- [Docker](docs/docker/)
+- [Konfiguracja](docs/configuration/)
 
 ## 🚀 Funkcje
 
