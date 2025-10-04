@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
 - **Short Messages Handling**: Email organizer now moves short messages to separate `ShortMessages` folder instead of skipping them
   - Displays sender, subject, and body preview for each short message
   - Configurable via `CONTENT_MIN_CHARS` and `CONTENT_MIN_TOKENS` env vars
+- **Active Conversation Detection**: Emails that are part of active conversations (with replies in Sent/Drafts) stay in INBOX
+  - Checks Message-ID, In-Reply-To, and References headers
+  - Prevents auto-categorization of ongoing email threads
+  - Displays conversation details during processing
 
 ### Fixed
 - **Virtual Environment Support**: `publish.sh` now activates venv if present
