@@ -15,24 +15,40 @@ Status na: 2025-10-04
 - [x] IMAP LIST parsing: poprawne nazwy folderów
 - [x] Konfigurowalne progi klasteryzacji CLI/ENV
 - [x] DRY_RUN mode pełna obsługa
-
 ## Średni priorytet
 - [ ] Stopwords PL/wielojęzyczne lub wykrywanie języka + `--stopwords`
 - [ ] Parametryzacja TF-IDF: `TFIDF_MAX_FEATURES` via CLI (ENV done)
 - [ ] LOG_LEVEL i spójne logowanie strukturalne (częściowo done)
 
-## Niski priorytet
-- [ ] Heurystyki spamu: analiza HTML, URL, „unsubscribe density” (większa precyzja) (`email_organizer.py`)
-- [ ] Organizacja poza INBOX: `--folder`, `--include-subfolders` (`email_organizer.py`)
-- [ ] Retry/backoff dla IMAP: `SEARCH/FETCH/MOVE` (`email_organizer.py`)
-- [ ] Docker: multi-stage build, pining wersji, healthchecki, mniejsze obrazy (`Dockerfile*`, `docker_compose.yml`)
+## Refaktoryzacja (≤500 linii/plik) – Plan
+- [x] Utworzyć szkielety modułów w `llmass/` (logging, organizer, core/router, imap)
+- [x] Przełączyć `llmass_cli.py:clean` na modułowy organizer (`llmass.organizer.app`)
+- [ ] Zweryfikować logowanie: domyślnie tylko błędy, pełne logi z `--verbose`
+- [ ] Rozbić `email_organizer.py` na mniejsze moduły:
+  - [x] `llmass/organizer/folders.py` – tworzenie/subskrypcja/migracje/cleanup folderów
+  - [x] `llmass/organizer/corruption.py` – detekcja corruption, przełączanie strategii
+  - [x] `llmass/organizer/fetcher.py` – bezpieczne pobieranie (UID/SEQ), limit, kompensacja
+  - [x] `llmass/organizer/filters.py` – spam, krótkie treści, aktywne konwersacje
+  - [x] `llmass/organizer/actions.py` – MOVE/COPY/STORE/EXPUNGE
+  - [x] `llmass/organizer/categorize.py` – grupowanie i dopasowanie kategorii
+  - [x] `llmass/organizer/text_utils.py` – fabryka wektoryzatora TF-IDF (`_make_vectorizer`)
+- [ ] Wyodrębnić IMAP warstwę:
+  - [ ] `llmass/imap/session.py` – połączenie/select/search/fetch (safe/seq)
+  - [ ] `llmass/imap/client.py` – strategie, retry/backoff, batchowanie
+- [ ] Zastąpić `EmailOrganizer` nowym pipeline (z zachowaniem cienkiej warstwy CLI)
+- [ ] Dodać MCP (Model Context Protocol): `llmass/mcp/client.py`, `llmass/mcp/server.py`
+- [ ] Włączyć prosty router (Camel-like) z `llmass/core/router.py` do orkiestracji
+- [ ] Testy jednostkowe dla nowych modułów i integracji CLI
+- [ ] Dokumentacja architektury (README + diagramy)
 
-## Notatki
-- W testach środowisko (Dovecot) może tworzyć folder SPAM jako `INBOX.SPAM` w zależności od delimitera (np. `.`). Testy muszą to uwzględniać.
-- Progi klasteryzacji są teraz ustawialne przez CLI/ENV i mają domyślne wartości bezpieczne dla mniejszych partii emaili.
+### Opcjonalne
+- [ ] Dodać sub-projekt Groovy + Apache Camel (`camel-groovy/`) jako przykład integracji
 
 
-zrob refaktoryzacje, zmniejsz ilość linii kodu w każdym pliku z kodem do 500linii lub mniej 
-stworz modularną i komplementarną architekturęz użyciem abstrakcji opartej na frameworku i wzorcach, które pasują do tego projektu
-aby możliwe było wdrożenie client, server MCP oraz komunikacji jak z apache camel, który możesz też równolegle użyć jako 
-drugi projek t w oparciu o groovy, który natywnie wspiera framework apache camel
+
+
+## przyszłość
+
+napisz porówniaeni llmass do wodpecker i instantly
+stworz funkcje integrującą z kalendarzem aby 
+można było pisac odpowiedzi w sprawie terminów w 

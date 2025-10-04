@@ -20,6 +20,13 @@ All notable changes to this project will be documented in this file.
 ### Refactor
 - `EmailOrganizer.repair_mailbox()` delegates to `llmass.organizer.repair` to reduce duplication.
 - Prepared structure for future MCP client/server and Camel-like routing.
+- Extracted folder management into `llmass/organizer/folders.py` and delegated calls from `email_organizer.py`.
+- Extracted corruption detection into `llmass/organizer/corruption.py` and delegated corruption checks.
+- Extracted fetch loop and filters into `llmass/organizer/fetcher.py` (UID/SEQ, limits, active conversation checks).
+- Extracted spam and text sufficiency heuristics and Sent/Drafts scanning into `llmass/organizer/filters.py`.
+- Extracted move operations (MOVE/COPY/STORE) into `llmass/organizer/actions.py`.
+- Extracted categorization and category name generation into `llmass/organizer/categorize.py`.
+- Extracted TF-IDF vectorizer factory into `llmass/organizer/text_utils.py` and delegated `_make_vectorizer()`.
 
 ## [1.1.5] - 2025-10-04
 
